@@ -36,6 +36,7 @@ my @remove_packages = (
     "aopalliance",
     'jackson-.*-asl',
     'xml-api',
+    'taglibs-standard-impl',
 );
 
 my $recommendations = {
@@ -152,7 +153,6 @@ my $update = {
     "esapi"                                    => { org => "org.owasp.esapi", name => "esapi", rev => "2.7.0.0" },
 
     # current versions just to help convert old build.xml projects to ivy.xml
-    "jta"                                      => { org => "javax.transaction", name => "jta", rev => "1.1" },
     "jsch"                                     => { org => "com.jcraft", name => "jsch", rev => "0.1.54" },
     
     # ehcache
@@ -197,6 +197,7 @@ $update->{"validation-api"} = $update->{"jakarta.validation-api"};
 $update->{"jstl"} = $update->{"jakarta.servlet.jsp.jstl"};
 $update->{"db2jcc"} = $update->{"jcc"};
 $update->{"db2jcc4"} = $update->{"jcc"};
+$update->{"jta"} = $update->{"jakarta.transaction-api"};
 
 my $add_if_missing = {
     "javax.servlet.jsp" => [
