@@ -165,9 +165,9 @@ if ($hibernate5) {
     $update->{"hibernate-jpamodelgen"}                    = { org => "org.hibernate", name => "hibernate-jpamodelgen", rev => "5.6.15.Final" };
     push @remove_packages, "hibernate-community-dialects";
 } else {
-    $update->{"hibernate-core"}                           = { org => "org.hibernate.orm", name => "hibernate-core", rev => "6.6.36.Final" };
-    $update->{"hibernate-jpamodelgen"}                    = { org => "org.hibernate.orm", name => "hibernate-jpamodelgen", rev => "6.6.36.Final" };
-    $update->{"hibernate-community-dialects"}             = { org => "org.hibernate.orm", name => "hibernate-community-dialects", rev => "6.6.45.Final" };
+    $update->{"hibernate-core"}                           = { org => "org.hibernate.orm", name => "hibernate-core", rev => "6.6.48.Final" };
+    $update->{"hibernate-jpamodelgen"}                    = { org => "org.hibernate.orm", name => "hibernate-jpamodelgen", rev => "6.6.48.Final" };
+    $update->{"hibernate-community-dialects"}             = { org => "org.hibernate.orm", name => "hibernate-community-dialects", rev => "6.6.48.Final" };
 }
 
 # replaced packages
@@ -236,6 +236,9 @@ $add_if_missing->{$hibernate5 ? "hibernate-core-jakarta" : "hibernate-core" } = 
             "jakarta.persistence-api",
             "jakarta.transaction-api",
         ];
+$add_if_missing->{"jcc"} = [
+    "hibernate-community-dialects"
+] if (!$hibernate5);
 
 my $keep_if_exists = {
     "commons-lang" => "commons-lang3",
