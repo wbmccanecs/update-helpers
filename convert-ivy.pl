@@ -110,7 +110,6 @@ my $update = {
     "jaxb-core"                                => { org => "com.sun.xml.bind", name => "jaxb-core", rev => "2.3.0" },
     "jaxb-impl"                                => { org => "com.sun.xml.bind", name => "jaxb-impl", rev => "2.3.0" },
     "lombok"                                   => { org => "org.projectlombok", name => "lombok", rev => "1.18.38" },
-    "javax.annotation-api"                     => { org => "javax.annotation", name => "javax.annotation-api", rev => "1.3.2" },
     "jakarta.annotation-api"                   => { org => "jakarta.annotation", name => "jakarta.annotation-api", rev=> "3.0.0" },
     "byte-buddy-agent"                         => { org => "net.bytebuddy", name => "byte-buddy-agent", rev => "1.17.7", conf => "compile->default" },
     # <!-- Hibernate -->
@@ -142,8 +141,8 @@ my $update = {
     "jaxws-api"                                => { org => "javax.xml.ws", name => "jaxws-api", rev => "2.3.0" },
     "commons-fileupload2-jakarta-servlet"      => { org => "org.apache.commons", name => "commons-fileupload2-jakarta-servlet", rev => "2.0.0-M4" },
     "httpmime"                                 => { org => "org.apache.httpcomponents", name => "httpmime", rev => "4.5.13" },
-    "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.5.1" },
-    "httpclient5-cache"                        => { org => "org.apache.httpcomponents.client5", name => "httpclient5-cache", rev => "5.5.1" },
+    "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.6" },
+    "httpclient5-cache"                        => { org => "org.apache.httpcomponents.client5", name => "httpclient5-cache", rev => "5.6" },
     "xmlbeans"                                 => { org => "org.apache.xmlbeans", name => "xmlbeans", rev => "3.0.0" },
     "hibernate-commons-annotations"            => { org => "org.hibernate.common", name => "hibernate-commons-annotations", rev => "5.1.1.Final" },
     "encoder"                                  => { org => "org.owasp.encoder", name => "encoder", rev => "1.3.1" },
@@ -184,6 +183,7 @@ if ($hibernate5) {
 }
 $update->{"httpclient"} = $update->{"httpclient5"};
 $update->{"httpclient-cache"} = $update->{"httpclient5-cache"};
+$update->{"javax.annotation-api"} = $update->{"jakarta.annotation-api"};
 $update->{"javax.servlet-api"} = $update->{"jakarta.servlet-api"};
 $update->{"javax.servlet.jsp-api"} = $update->{"jakarta.servlet.jsp-api"};
 $update->{"jsp-api"} = $update->{"jakarta.servlet.jsp-api"};

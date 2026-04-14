@@ -54,6 +54,8 @@ my $java_patterns = {
     '@EnableMBeanExport' => 'remove @EnableMBeanExport',
     '(CommonsMultipartResolver)' => 'replace $1 with StandardServletMultipartResolver',
     '(\w*JdbcTemplate)' => '$1',
+    'BigDecimal.*getResult' => 'query returns BigDecimal',
+    'filter\.PageFilter' => 'replace PageFilter with SiteMeshFilter',
 };
 my $xml_patterns = {
     "org\\.jasig" => "jasig CAS",
@@ -173,20 +175,20 @@ sub safety_check {
 	    (my $full_path_relative = $File::Find::name) =~ s#\\#/#g;
 
 	    if (
-		$full_path_relative eq './.git' ||
-		$full_path_relative eq './target' ||
-		$full_path_relative eq './build' ||
-		$full_path_relative eq './node_modules' ||
-		$full_path_relative eq './bin' ||
-		$full_path_relative eq './out' ||
-		$full_path_relative eq './deploy' ||
-		$full_path_relative eq './reports' ||
-		$full_path_relative eq './test-automation' ||
-		$full_path_relative eq './test-bin' ||
-		$full_path_relative eq './war/META-INF' ||
-		$full_path_relative eq './war/WEB-INF/classes' ||
-		$full_path_relative eq './war/WEB-INF/lib' ||
-		$full_path_relative eq './.settings' # Eclipse project files
+		$full_path_relative =~ '.*/.git' ||
+		$full_path_relative =~ '.*/target' ||
+		$full_path_relative =~ '.*/build' ||
+		$full_path_relative =~ '.*/node_modules' ||
+		$full_path_relative =~ '.*/bin' ||
+		$full_path_relative =~ '.*/out' ||
+		$full_path_relative =~ '.*/deploy' ||
+		$full_path_relative =~ '.*/reports' ||
+		$full_path_relative =~ '.*/test-automation' ||
+		$full_path_relative =~ '.*/test-bin' ||
+		$full_path_relative =~ '.*/war/META-INF' ||
+		$full_path_relative =~ '.*/war/WEB-INF/classes' ||
+		$full_path_relative =~ '.*/war/WEB-INF/lib' ||
+		$full_path_relative =~ '.*/.settings' # Eclipse project files
 	    ) {
 		$File::Find::prune = 1; # Don't traverse into this directory
 		return;
