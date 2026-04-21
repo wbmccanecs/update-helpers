@@ -11,8 +11,8 @@ use Cwd 'cwd', 'abs_path';
 
 my $start_directory = '.';
 my $remove_if_exists = {
-	"EnvironmentHelper" => "remove",
-	"FilterConfig" => "remove",
+    "EnvironmentHelper" => "remove",
+    "FilterConfig" => "remove",
 };
 my $java_patterns = {
     "org\\.apache\\.commons\\.lang\\." => "commons-lang",
@@ -95,33 +95,35 @@ my $sh_patterns = {
     "umask *022" => "update setenv.sh",
 };
 
-my ($help,$checkJava,$checkJsp,$checkJs,$checkProperties,$checkIml,$checkXml,$checkYml,$checkSh) = (0) x 9;
-
-my %checkMap = (
-    'java' => \$checkJava,
-    'jsp' => \$checkJsp,
-    'js' => \$checkJs,
-    'prop' => \$checkProperties,
-    'properties' => \$checkProperties,
-    'xml' => \$checkXml,
-    'iml' => \$checkIml,
-    'yml' => \$checkYml,
-    'yaml' => \$checkYml,
-    'sh' => \$checkSh,
+my @required_files = (
+    'pom.xml',
+    'build.xml',
+    'ivy.xml',
+    'build-standard.xml',
+    'build.properties',
+    '.gitignore',
 );
 
+
+my $checks;
+my ($help);
+
 GetOptions(
-    "dir|d=s"		=> \$start_directory,
-    "help|h"		=> \$help,
+    "dir|d=s"        => \$start_directory,
+    "help|h"        => \$help,
 ) or usage();
+
+if ($help) {
+    usage();
+    exit 0;
+}
 
 for my $arg (@ARGV) {
     my $key = lc($arg);
-
-    ${$checkMap{$key}} = 1 if exists $checkMap{$key};
+    $checks->{$key} = 1;
 }
 
-my $checkAll = (scalar @ARGV == 0) & !($checkJava + $checkJsp + $checkJs + $checkProperties + $checkXml + $checkIml + $checkYml + $checkSh);
+my $checkAll = scalar keys %$checks == 0;
 
 my $abs_start_directory_resolved = abs_path($start_directory);
 if (!defined $abs_start_directory_resolved) {
@@ -131,14 +133,15 @@ if (!defined $abs_start_directory_resolved) {
 print BOLD MAGENTA "DEBUG (Top-Level): File::Find will start from absolute path: '$abs_start_directory_resolved'\n" . RESET;
 
 print BOLD GREEN "--- Starting All Safety Checks ---\n" . RESET;
-safety_check($start_directory, 'java', $java_patterns) if $checkJava || $checkAll;
-safety_check($start_directory, 'jsp', $jsp_patterns) if $checkJsp || $checkAll;
-safety_check($start_directory, 'js', $js_patterns) if $checkJs || $checkAll;
-safety_check($start_directory, 'properties', $properties_patterns) if $checkProperties || $checkAll;
-safety_check($start_directory, 'xml', $xml_patterns) if $checkXml || $checkAll;
-safety_check($start_directory, 'iml', $iml_patterns) if $checkIml || $checkAll;
-safety_check($start_directory, 'yml', $yaml_patterns) if $checkYml || $checkAll;
-safety_check($start_directory, 'sh', $sh_patterns) if $checkSh || $checkAll;
+safety_check($start_directory, 'java', $java_patterns) if $checks->{java} || $checkAll;
+safety_check($start_directory, 'jsp', $jsp_patterns) if $checks->{jsp} || $checkAll;
+safety_check($start_directory, 'js', $js_patterns) if $checks->{js} || $checkAll;
+safety_check($start_directory, 'properties', $properties_patterns) if $checks->{properties} || $checkAll;
+safety_check($start_directory, 'xml', $xml_patterns) if $checks->{xml} || $checkAll;
+safety_check($start_directory, 'iml', $iml_patterns) if $checks->{iml} || $checkAll;
+safety_check($start_directory, 'yml', $yaml_patterns) if $checks->{yml} || $checkAll;
+safety_check($start_directory, 'sh', $sh_patterns) if $checks->{sh} || $checkAll;
+misc_checks($start_directory) if $checks->{misc} || $checkAll;
 print BOLD GREEN "--- All Safety Checks Complete ---\n" . RESET;
 exit 0;
 
@@ -149,20 +152,20 @@ sub safety_check {
 
     my %compiled_patterns;
     foreach my $p (keys %$patterns_ref) {
-	eval {
-	    $compiled_patterns{$p} = qr/$p/;
-	};
-	if ($@) {
-	    print BOLD RED "Error: Invalid regular expression pattern '$p': $@\n" . RESET;
-	    exit 1;
-	}
+    eval {
+        $compiled_patterns{$p} = qr/$p/;
+    };
+    if ($@) {
+        print BOLD RED "Error: Invalid regular expression pattern '$p': $@\n" . RESET;
+        exit 1;
+    }
     }
 
     print BOLD BLUE "\n---Running Safety Check for *.$file_extension files ---\n" . RESET;
     print BOLD BLUE "  Target files with extension: " . $file_extension . "\n" . RESET;
     print BOLD BLUE "  Searching for patterns:\n" . RESET;
     foreach my $p_regex (sort keys %$patterns_ref) {
-	print BOLD BLUE "    - '$p_regex' (Identified as: " . $patterns_ref->{$p_regex} . ")\n" . RESET;
+    print BOLD BLUE "    - '$p_regex' (Identified as: " . $patterns_ref->{$p_regex} . ")\n" . RESET;
     }
     print BOLD BLUE "  Starting directory: " . $current_dir . "\n" . RESET;
     print "-" x 50 . "\n\n";
@@ -170,73 +173,92 @@ sub safety_check {
     my $file_count = 0;
 
     my $wanted_sub = sub {
-	# Skip common development/build directories
-	if (-d $_) {
-	    (my $full_path_relative = $File::Find::name) =~ s#\\#/#g;
+    # Skip common development/build directories
+    if (-d $_) {
+        (my $full_path_relative = $File::Find::name) =~ s#\\#/#g;
 
-	    if (
-		$full_path_relative =~ '.*/.git' ||
-		$full_path_relative =~ '.*/target' ||
-		$full_path_relative =~ '.*/build' ||
-		$full_path_relative =~ '.*/node_modules' ||
-		$full_path_relative =~ '.*/bin' ||
-		$full_path_relative =~ '.*/out' ||
-		$full_path_relative =~ '.*/deploy' ||
-		$full_path_relative =~ '.*/reports' ||
-		$full_path_relative =~ '.*/test-automation' ||
-		$full_path_relative =~ '.*/test-bin' ||
-		$full_path_relative =~ '.*/war/META-INF' ||
-		$full_path_relative =~ '.*/war/WEB-INF/classes' ||
-		$full_path_relative =~ '.*/war/WEB-INF/lib' ||
-		$full_path_relative =~ '.*/.settings' # Eclipse project files
-	    ) {
-		$File::Find::prune = 1; # Don't traverse into this directory
-		return;
-	    }
-	}
+        if (
+        $full_path_relative =~ '.*/.git' ||
+        $full_path_relative =~ '.*/target' ||
+        $full_path_relative =~ '.*/build' ||
+        $full_path_relative =~ '.*/node_modules' ||
+        $full_path_relative =~ '.*/bin' ||
+        $full_path_relative =~ '.*/out' ||
+        $full_path_relative =~ '.*/deploy' ||
+        $full_path_relative =~ '.*/reports' ||
+        $full_path_relative =~ '.*/test-automation' ||
+        $full_path_relative =~ '.*/test-bin' ||
+        $full_path_relative =~ '.*/war/META-INF' ||
+        $full_path_relative =~ '.*/war/WEB-INF/classes' ||
+        $full_path_relative =~ '.*/war/WEB-INF/lib' ||
+        $full_path_relative =~ '.*/.settings' # Eclipse project files
+        ) {
+        $File::Find::prune = 1; # Don't traverse into this directory
+        return;
+        }
+    }
 
-	# only process regular files
-	return unless -f $_;
+    # only process regular files
+    return unless -f $_;
 
-	my $file_path_raw = $File::Find::name;
-	my ($filename, $dirs, $suffix) = fileparse($file_path_raw, qr/\.[^.]*$/);
+    my $file_path_raw = $File::Find::name;
+    my ($filename, $dirs, $suffix) = fileparse($file_path_raw, qr/\.[^.]*$/);
 
-	return unless lc $suffix eq $lc_target_extension_with_dot;
+    return unless lc $suffix eq $lc_target_extension_with_dot;
 
-	# remove unwanted files
-	if ($remove_if_exists->{$filename}) {
-	    print BOLD YELLOW "$file_path_raw " . $remove_if_exists->{$filename} . "\n" . RESET;
-	    return;
-	}
+    # remove unwanted files
+    if ($remove_if_exists->{$filename}) {
+        print BOLD YELLOW "$file_path_raw " . $remove_if_exists->{$filename} . "\n" . RESET;
+        return;
+    }
 
-	open my $fh, "<", $_ or do {
-	    warn BOLD YELLOW "Warning: could not open $file_path_raw: $!" . RESET . "\n";
-	    return;
-	};
+    open my $fh, "<", $_ or do {
+        warn BOLD YELLOW "Warning: could not open $file_path_raw: $!" . RESET . "\n";
+        return;
+    };
 
-	++$file_count;
+    ++$file_count;
 
-	my $line_num = 0;
-	my $file_has_match = 0;
+    my $line_num = 0;
+    my $file_has_match = 0;
 
-	while (my $line = <$fh>) {
-	    $line_num ++;
-	    for my $pattern_regex_key (keys %compiled_patterns) {
-		if ($line =~ $compiled_patterns{$pattern_regex_key}) {
-		    $file_has_match = 1;
-		    my $output_string = $patterns_ref->{$pattern_regex_key};
-		    my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-		    $output_string =~ s/\$(\d+)/$matches[$1-1]/ge;
-		    print BOLD YELLOW "$file_path_raw " . $output_string . "\n" . RESET;
-		}
-	    }
-	    last if $file_has_match;
-	}
-	close $fh;
+    while (my $line = <$fh>) {
+        $line_num ++;
+        for my $pattern_regex_key (keys %compiled_patterns) {
+        if ($line =~ $compiled_patterns{$pattern_regex_key}) {
+            $file_has_match = 1;
+            my $output_string = $patterns_ref->{$pattern_regex_key};
+            my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+            $output_string =~ s/\$(\d+)/$matches[$1-1]/ge;
+            print BOLD YELLOW "$file_path_raw " . $output_string . "\n" . RESET;
+        }
+        }
+        last if $file_has_match;
+    }
+    close $fh;
     };
 
     find($wanted_sub, $current_dir);
     print BOLD BLUE "  Validated files: " . $file_count . "\n" . RESET;
     print "-" x 50 . "\n\n";
+}
+
+sub misc_checks {
+    my ($current_dir) = @_;
+
+    for my $file (@required_files) {
+        check_for_file($file);
+    }
+}
+
+sub check_for_file {
+    my ($file) = @_;
+
+    if (! -f $file) {
+        print BOLD YELLOW $file . " missing\n" . RESET;
+    } else {
+        my $x=`git ls-files --error-unmatch $file`;
+        print BOLD YELLOW $file . " is not in repository\n" . RESET if $?;
+    }
 }
 
