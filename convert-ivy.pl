@@ -37,6 +37,8 @@ my @remove_packages = (
     'jackson-.*-asl',
     'xml-api',
     'taglibs-standard-impl',
+    "javax.jms-api",
+    "jakarta.jms-api",
 );
 
 my $recommendations = {
