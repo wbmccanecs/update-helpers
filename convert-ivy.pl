@@ -158,6 +158,12 @@ my $update = {
     "cache-api"                                => { org => "javax.cache", name => "cache-api", rev => "1.1.1" },
     "ehcache"                                  => { org => "org.ehcache", name => "ehcache", rev => "3.11.1" },
     "jaxb-runtime"                             => { org => "org.glassfish.jaxb", name => "jaxb-runtime", rev => "4.0.5" },
+    
+    "ignite-core"                              => { org => "org.apache.ignite", name => "ignite-core", rev => "2.17.0" },
+    "ignite-spring"                            => { org => "org.apache.ignite", name => "ignite-spring", rev => "2.17.0" },
+    "ignite-indexing"                          => { org => "org.apache.ignite", name => "ignite-indexing", rev => "2.17.0" },
+    "ignite-log4j2"                            => { org => "org.apache.ignite", name => "ignite-log4j2", rev => "2.17.0" },
+    "ignite-slf4j"                             => { org => "org.apache.ignite", name => "ignite-slf4j", rev => "2.17.0" },
 };
 
 if ($hibernate5) {
@@ -271,6 +277,9 @@ my $exclusions = {
     "tika-parser-sqlite3-package"   => [],
     "ehcache"                       => [
         { org => "org.glassfish.jaxb" },
+    ],
+    "ignite-indexing"               => [
+        { org => "com.h2database", }
     ],
 };
 
