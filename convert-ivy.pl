@@ -139,7 +139,7 @@ my $update = {
     "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.14" },
     "jakarta.xml.soap-api"                     => { org => "jakarta.xml.soap", name => "jakarta.xml.soap-api", rev => "2.0.1" },
     "jaxws-api"                                => { org => "javax.xml.ws", name => "jaxws-api", rev => "2.3.0" },
-    "commons-fileupload2-jakarta-servlet"      => { org => "org.apache.commons", name => "commons-fileupload2-jakarta-servlet", rev => "2.0.0-M4" },
+    "commons-fileupload2-jakarta-servlet6"     => { org => "org.apache.commons", name => "commons-fileupload2-jakarta-servlet6", rev => "2.0.0-M5" },
     "httpmime"                                 => { org => "org.apache.httpcomponents", name => "httpmime", rev => "4.5.13" },
     "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.6" },
     "httpclient5-cache"                        => { org => "org.apache.httpcomponents.client5", name => "httpclient5-cache", rev => "5.6" },
@@ -174,7 +174,7 @@ if ($hibernate5) {
 $update->{"commons-lang"} = $update->{"commons-lang3"};
 $update->{"commons-dbcp"} = $update->{"commons-dbcp2"};
 $update->{"commons-collections"} = $update->{"commons-collections4"};
-$update->{"commons-fileupload"} = $update->{"commons-fileupload2-jakarta-servlet"};
+$update->{"commons-fileupload"} = $update->{"commons-fileupload2-jakarta-servlet6"};
 $update->{"encoder-jsp"} = $update->{"encoder-jakarta-jsp"};
 if ($hibernate5) {
     $update->{"hibernate-core"} = $update->{"hibernate-core-jakarta"};
