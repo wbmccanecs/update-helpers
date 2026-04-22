@@ -47,7 +47,7 @@ my $recommendations = {
     'commons-lang' => 'convert all classes to use commons-lang3, try to remove commons-lang dependency',
 };
 
-my $springVersion = '6.2.17';
+my $springVersion = '6.2.18';
 my $springSecurityVersion = '6.5.4';
 
 my @keyOrder = ( "org", "module", "name" );
