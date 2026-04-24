@@ -68,6 +68,7 @@ my $update = {
     "spring-webmvc"                            => { org => "org.springframework", name => "spring-webmvc", rev => $springVersion },
     "spring-websocket"                         => { org => "org.springframework", name => "spring-websocket", rev => $springVersion },
     "spring-aop"                               => { org => "org.springframework", name => "spring-aop", rev => $springVersion },
+    "spring-aspects"                           => { org => "org.springframework", name => "spring-aspects", rev => $springVersion },
     "spring-security-core"                     => { org => "org.springframework.security", name => "spring-security-core", rev => "6.5.4" },
     "spring-security-crypto"                   => { org => "org.springframework.security", name => "spring-security-crypto", rev => $springSecurityVersion },
     "spring-security-web"                      => { org => "org.springframework.security", name => "spring-security-web", rev => $springSecurityVersion },
