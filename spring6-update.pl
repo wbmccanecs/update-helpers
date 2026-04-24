@@ -11,9 +11,9 @@ use Cwd 'cwd', 'abs_path';
 
 my $start_directory = '.';
 my $remove_if_exists = {
-    "EnvironmentHelper" => "remove",
-    "FilterConfig" => "remove",
-    "FilterConfigTest" => "remove",
+    "EnvironmentHelper" => "warn",
+    "FilterConfig" => "warn",
+    "FilterConfigTest" => "warn",
     "AuthorizationDeniedController" => "remove",
     "AuthorizationDeniedControllerTest" => "remove",
     "LogoutController" => "remove",
@@ -67,7 +67,7 @@ my $jsp_patterns = {
     "https?://www.owasp.org/index.php/OWASP_Java_Encoder_Project(#advanced)?" => "owasp.encoder.jakarta",
 };
 my $js_patterns = {
-	'^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => q!$1var sanitizedHtml = DOMPurify.sanitize($4, { ADD_TAGS: ['script'] });!."\n".q!$1$2sanitizedHtml$5!,
+    '^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => q!$1var sanitizedHtml = DOMPurify.sanitize($4, { ADD_TAGS: ['script'] });!."\n".q!$1$2sanitizedHtml$5!,
 };
 my $properties_patterns = {
     "content.ts.mgicint.net" => "content.mgic.com",
@@ -190,13 +190,15 @@ sub upgrade_to_spring6 {
 
         return unless lc $suffix eq $lc_target_extension_with_dot;
 
-	# remove unwanted classes
-	if ($remove_if_exists->{$filename}) {
+        # remove unwanted classes
+        if ($remove_if_exists->{$filename}) {
             warn BOLD YELLOW "Removing unwanted class $dirs$filename$suffix" . RESET . "\n";
-	    unlink $_;
-	    die "$!" if $!;
-	    return;
-	}
+            if ("remove" eq $remove_if_exists->{$filename}) {
+                unlink $_;
+                die "$!" if $!;
+            }
+            return;
+        }
 
         open my $fh, "<", $_ or do {
             warn BOLD YELLOW "Warning: could not open $file_path_raw: $!" . RESET . "\n";
@@ -248,20 +250,20 @@ sub perform_substitutions {
         if ($replacement =~ m/\$\d/) {
             if ($slurp =~ m/\$[1-9]/) {
                 warn BOLD RED "$file_path_raw contains string that looks like matching group so cannot be updated" . RESET . "\n";
-		last;
+                last;
             } else {
                 while ($slurp =~ s/$compiled_patterns->{$pattern_regex_key}/$patterns_ref->{$pattern_regex_key}/xs) {
                     my @matches = (0, $1, $2, $3, $4, $5, $6, $7, $8, $9);
-		    $slurp =~ s/\$([1-9])/$matches[$1]/ge;
-		    #		    $slurp =~ s/\\n/\n/g;
-		    my $output_string = $patterns_ref->{$pattern_regex_key};
-		    $output_string =~ s/\$([1-9])/$matches[$1]/ge;
-		    $output_string =~ s/\\n/\n/g;
+                    $slurp =~ s/\$([1-9])/$matches[$1]/ge;
+                    #            $slurp =~ s/\\n/\n/g;
+                    my $output_string = $patterns_ref->{$pattern_regex_key};
+                    $output_string =~ s/\$([1-9])/$matches[$1]/ge;
+                    $output_string =~ s/\\n/\n/g;
                     print BOLD YELLOW "$file_path_raw " . $output_string . "\n" . RESET;
                 }
             }
         } else {
-	    my $output_string = $patterns_ref->{$pattern_regex_key};
+        my $output_string = $patterns_ref->{$pattern_regex_key};
             if ($slurp =~ s/$compiled_patterns->{$pattern_regex_key}/$output_string/xsg) {
                 print BOLD YELLOW "$file_path_raw " . ($output_string || $pattern_regex_key) . "\n" . RESET;
             }
