@@ -39,6 +39,7 @@ my @remove_packages = (
     'taglibs-standard-impl',
     "javax.jms-api",
     "jakarta.jms-api",
+    "hibernate-annotations",
 );
 
 my $recommendations = {
@@ -76,6 +77,7 @@ my $update = {
     "spring-security-oauth2-resource-server"   => { org => "org.springframework.security", name => "spring-security-oauth2-resource-server", rev => $springSecurityVersion },
     "spring-security-test"                     => { org => "org.springframework.security", name => "spring-security-test", rev => $springSecurityVersion },
     "spring-security-oauth2-jose"              => { org => "org.springframework.security", name => "spring-security-oauth2-jose", rev => $springSecurityVersion },
+    "spring-boot-autoconfigure"                => { org => "org.springframework.boot", name => "spring-boot-autoconfigure", rev => "3.5.14" },
     # <!-- Miscellaneous -->
     "jcc"                                      => { org => "com.ibm.db2", name => "jcc", rev => "11.5.9.0" },
     "ojdbc8"                                   => { org => "com.oracle.database.jdbc", name => "ojdbc8", rev => "23.26.0.0.0" },
