@@ -21,7 +21,6 @@ my @remove_packages = (
     "commons-pool",
     "spring-asm",
     "spring-orm",
-    "spring-core",
     "spring-data-commons",
     "hibernate-entitymanager",
     "hibernate-jpa-2.1-api",
@@ -55,6 +54,7 @@ my @keyOrder = ( "org", "module", "name" );
 
 my $update = {
     # <!-- Spring -->
+    "spring-core"                             => { org => "org.springframework", name => "spring-core", rev => $springVersion },
     "spring-beans"                             => { org => "org.springframework", name => "spring-beans", rev => $springVersion },
     "spring-context"                           => { org => "org.springframework", name => "spring-context", rev => $springVersion },
     "spring-context-support"                   => { org => "org.springframework", name => "spring-context-support", rev => $springVersion },
@@ -239,6 +239,12 @@ my $add_if_missing = {
     ],
     "ehcache" => [
         "jaxb-runtime",
+    ],
+    "javax.mail" => [
+        "javax.activation",
+    ],
+    "javax.mail-api" => [
+        "javax.activation",
     ],
 };
 
