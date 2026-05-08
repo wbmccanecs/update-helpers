@@ -147,7 +147,7 @@ my $update = {
     "jaxws-api"                                => { org => "javax.xml.ws", name => "jaxws-api", rev => "2.3.0" },
     "commons-fileupload2-jakarta-servlet6"     => { org => "org.apache.commons", name => "commons-fileupload2-jakarta-servlet6", rev => "2.0.0-M5" },
     "httpmime"                                 => { org => "org.apache.httpcomponents", name => "httpmime", rev => "4.5.13" },
-    "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.6" },
+    "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.6.1" },
     "httpclient5-cache"                        => { org => "org.apache.httpcomponents.client5", name => "httpclient5-cache", rev => "5.6" },
     "xmlbeans"                                 => { org => "org.apache.xmlbeans", name => "xmlbeans", rev => "3.0.0" },
     "hibernate-commons-annotations"            => { org => "org.hibernate.common", name => "hibernate-commons-annotations", rev => "5.1.1.Final" },
