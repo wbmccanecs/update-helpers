@@ -41,13 +41,12 @@ my $override_branch = {
     "https://git.mgicint.net/mgic_sysdev/mgic_business" => "spring6",
     "https://git.mgicint.net/mgic_sysdev/mgic_mux" => "spring6",
     "https://git.mgicint.net/mgic_sysdev/claims_common" => "spring6",
+    "https://git.mgicint.net/mgic_sysdev/mgic_common" => "spring6",
 };
 if ($hibernate5) {
-    $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_common"} = "spring6";
     $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_persistence"} = "spring6";
     $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_entity"} = "spring6";
 } else {
-    $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_common"} = "hibernate6";
     $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_persistence"} = "hibernate6";
     $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_entity"} = "hibernate6";
 }
