@@ -26,6 +26,7 @@ open (my $out, ">", $output)
 
 my $xlate = {
     "https://git.mgicint.net/mgic_sysdev/claims_common" => 3656,
+    "https://git.mgicint.net/mgic_sysdev/document_viewer_2025" => 2409,
     "https://git.mgicint.net/mgic_sysdev/mgic_business" => 2989,
     "https://git.mgicint.net/mgic_sysdev/mgic_client_jars" => 2986,
     "https://git.mgicint.net/mgic_sysdev/mgic_common" => 2997,
@@ -35,7 +36,7 @@ my $xlate = {
     "https://git.mgicint.net/mgic_sysdev/mgic_third_party_jars" => 2998,
     "https://git.mgicint.net/mgic_sysdev/mgic_entity" => 2992,
     "https://git.mgicint.net/mgic_sysdev/mgic_dao" => 2991,
-    "https://git.mgicint.net/mgic_sysdev/mgic_webapp_template" => 3008
+    "https://git.mgicint.net/mgic_sysdev/mgic_webapp_template" => 3008,
 };
 my $override_branch = {
     "https://git.mgicint.net/mgic_sysdev/mgic_business" => "spring6",
