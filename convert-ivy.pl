@@ -127,7 +127,7 @@ my $update = {
     "jakarta.transaction-api"                  => { org => "jakarta.transaction", name => "jakarta.transaction-api", rev => "2.0.1" },
     # <!-- CAS for SSO - ONLY FOR ATLAS APPS -->
     "cas-client-core"                          => { org => "org.apereo.cas.client", name => "cas-client-core", rev => "4.0.4" },
-    "nimbus-jose-jwt"                          => { org => "com.nimbusds", name => "nimbus-jose-jwt", rev => "10.0.2" },
+    "nimbus-jose-jwt"                          => { org => "com.nimbusds", name => "nimbus-jose-jwt", rev => "10.9" },
     # <!-- Other -->
     "poi"                                      => { org => "org.apache.poi", name => "poi", rev => "5.4.1" },
     "poi-ooxml"                                => { org => "org.apache.poi", name => "poi-ooxml", rev => "5.4.1" },
@@ -165,11 +165,11 @@ my $update = {
     "ehcache"                                  => { org => "org.ehcache", name => "ehcache", rev => "3.11.1" },
     "jaxb-runtime"                             => { org => "org.glassfish.jaxb", name => "jaxb-runtime", rev => "4.0.5" },
     
-    "ignite-core"                              => { org => "org.apache.ignite", name => "ignite-core", rev => "2.17.0" },
-    "ignite-spring"                            => { org => "org.apache.ignite", name => "ignite-spring", rev => "2.17.0" },
-    "ignite-indexing"                          => { org => "org.apache.ignite", name => "ignite-indexing", rev => "2.17.0" },
-    "ignite-log4j2"                            => { org => "org.apache.ignite", name => "ignite-log4j2", rev => "2.17.0" },
-    "ignite-slf4j"                             => { org => "org.apache.ignite", name => "ignite-slf4j", rev => "2.17.0" },
+    "ignite-core"                              => { org => "org.apache.ignite", name => "ignite-core", rev => "2.18.0" },
+    "ignite-spring"                            => { org => "org.apache.ignite", name => "ignite-spring", rev => "2.18.0" },
+    "ignite-indexing"                          => { org => "org.apache.ignite", name => "ignite-indexing", rev => "2.18.0" },
+    "ignite-log4j2"                            => { org => "org.apache.ignite", name => "ignite-log4j2", rev => "2.18.0" },
+    "ignite-slf4j"                             => { org => "org.apache.ignite", name => "ignite-slf4j", rev => "2.13.0" },
 };
 
 if ($hibernate5) {
