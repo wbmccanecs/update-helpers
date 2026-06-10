@@ -10,6 +10,7 @@ use Term::ANSIColor qw{:constants};
 use Cwd 'cwd', 'abs_path';
 
 my $start_directory = '.';
+my $dry_run = 0;
 my $remove_if_exists = {
     "EnvironmentHelper" => "warn",
     "FilterConfig" => "warn",
@@ -25,6 +26,7 @@ my $java_patterns = {
     "org\\.apache\\.http\\." => 'org.apache.hc.client5.http.',
     'org\.apache\.commons\.httpclient\.' => 'org.apache.hc.core5.http.',
     '([\(\s])javax\.(?!cache|mail|management|naming|net|sql|xml)' => '$1jakarta.',
+    '([\(\s])javax\.(?!cache|crypto|mail|management|naming|net|sql|xml\.(?>XMLConstants|catalog|datatype|namespace|parsers|stream|transform|validation|xpath))' => '$1jakarta.',
     "^import *com\\.ibm\\.mq\\.jms" => 'import com.ibm.mq.jakarta.jms',
     '^( *).*"MQ_QMGRNAME".*$' => '$1System.setProperty("MQCHLLIB", "W:/MQ/devtools/ccdt/");',
     "^( *).*MgicQueueConnectionFactory.setCluster.*" => '$1System.setProperty("MQCHLTAB", "INT.RQDM4TS.JSON");',
@@ -92,8 +94,9 @@ my %checkMap = (
 );
 
 GetOptions(
-    "dir|d=s"         => \$start_directory,
-    "help|h"          => \$help,
+    "dir|d=s"              => \$start_directory,
+    "dry-run|dryrun|dry|n" => $dry_run,
+    "help|h"               => \$help,
 ) or usage();
 
 for my $arg (@ARGV) {
@@ -252,18 +255,22 @@ sub perform_substitutions {
                 warn BOLD RED "$file_path_raw contains string that looks like matching group so cannot be updated" . RESET . "\n";
                 last;
             } else {
-                while ($slurp =~ s/$compiled_patterns->{$pattern_regex_key}/$patterns_ref->{$pattern_regex_key}/xs) {
-                    my @matches = (0, $1, $2, $3, $4, $5, $6, $7, $8, $9);
-                    $slurp =~ s/\$([1-9])/$matches[$1]/ge;
-                    #            $slurp =~ s/\\n/\n/g;
-                    my $output_string = $patterns_ref->{$pattern_regex_key};
-                    $output_string =~ s/\$([1-9])/$matches[$1]/ge;
-                    $output_string =~ s/\\n/\n/g;
-                    print BOLD YELLOW "$file_path_raw " . $output_string . "\n" . RESET;
+                if ($dry_run && $slurp =~ m/$compiled_patterns->{$pattern_regex_key}) {
+                    warn BOLD YELLOW "$file_path_raw found match: $pattern_regex_key" . RESET . "\n";
+                } else {
+                    while ($slurp =~ s/$compiled_patterns->{$pattern_regex_key}/$patterns_ref->{$pattern_regex_key}/xs) {
+                        my @matches = (0, $1, $2, $3, $4, $5, $6, $7, $8, $9);
+                        $slurp =~ s/\$([1-9])/$matches[$1]/ge;
+                        #            $slurp =~ s/\\n/\n/g;
+                        my $output_string = $patterns_ref->{$pattern_regex_key};
+                        $output_string =~ s/\$([1-9])/$matches[$1]/ge;
+                        $output_string =~ s/\\n/\n/g;
+                        print BOLD YELLOW "$file_path_raw " . $output_string . "\n" . RESET;
+                    }
                 }
             }
         } else {
-        my $output_string = $patterns_ref->{$pattern_regex_key};
+            my $output_string = $patterns_ref->{$pattern_regex_key};
             if ($slurp =~ s/$compiled_patterns->{$pattern_regex_key}/$output_string/xsg) {
                 print BOLD YELLOW "$file_path_raw " . ($output_string || $pattern_regex_key) . "\n" . RESET;
             }

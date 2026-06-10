@@ -26,6 +26,9 @@ my @remove_packages = (
     "hibernate-jpa-2.1-api",
     "httpmime",
     'jandex',
+    "jaxb-api",
+    "jaxb-core",
+    "jaxb-impl",
     "log4jdbc",
     "^powermock-",
     "easymock",
@@ -39,6 +42,7 @@ my @remove_packages = (
     "javax.jms-api",
     "jakarta.jms-api",
     "hibernate-annotations",
+    "javax.activation",
 );
 
 my $recommendations = {
@@ -47,7 +51,7 @@ my $recommendations = {
     'commons-lang' => 'convert all classes to use commons-lang3, try to remove commons-lang dependency',
 };
 
-my $springVersion = '6.2.18';
+my $springVersion = '6.2.19';
 my $springSecurityVersion = '6.5.4';
 
 my @keyOrder = ( "org", "module", "name" );
@@ -89,8 +93,8 @@ my $update = {
     "commons-beanutils"                        => { org => "commons-beanutils", name => "commons-beanutils", rev => "1.11.0" },
     "commons-dbcp2"                            => { org => "org.apache.commons", name => "commons-dbcp2", rev => "2.14.0" },
     "commons-io"                               => { org => "commons-io", name => "commons-io", rev => "2.20.0" },
-    "javax.mail-api"                           => { org => "javax.mail", name => "javax.mail-api", rev => "1.5.5" },
-    "javax.mail"                               => { org => "com.sun.mail", name => "javax.mail", rev => "1.5.5" },
+    "jakarta.mail-api"                         => { org => "jakarta.mail", name => "jakarta.mail-api", rev => "2.2.0-M1" },
+    "angus-mail"                               => { org => "org.eclipse.angus", name => "angus-mail", rev => "2.1.0-M1" },
     "joda-time"                                => { org => "joda-time", name => "joda-time", rev => "2.9.2" },
     "jaxen"                                    => { org => "jaxen", name => "jaxen", rev => "2.0.0" },
     # <!-- Logging -->
@@ -111,10 +115,6 @@ my $update = {
     "jakarta.servlet.jsp-api"                  => { org => "jakarta.servlet.jsp", name => "jakarta.servlet.jsp-api", rev => "4.0.0", conf => 'compile->default' },
     "jakarta.servlet.jsp.jstl"                 => { org => "org.glassfish.web", name => "jakarta.servlet.jsp.jstl", rev => "3.0.1" },
     "jakarta.servlet.jsp.jstl-api"             => { org => "jakarta.servlet.jsp.jstl", name => "jakarta.servlet.jsp.jstl-api", rev => "3.0.2" },
-    "javax.activation"                         => { org => "com.sun.activation", name => "javax.activation", rev => "1.2.0" },
-    "jaxb-api"                                 => { org => "javax.xml.bind", name => "jaxb-api", rev => "2.3.0" },
-    "jaxb-core"                                => { org => "com.sun.xml.bind", name => "jaxb-core", rev => "2.3.0" },
-    "jaxb-impl"                                => { org => "com.sun.xml.bind", name => "jaxb-impl", rev => "2.3.0" },
     "lombok"                                   => { org => "org.projectlombok", name => "lombok", rev => "1.18.38" },
     "jakarta.annotation-api"                   => { org => "jakarta.annotation", name => "jakarta.annotation-api", rev=> "3.0.0" },
     "byte-buddy-agent"                         => { org => "net.bytebuddy", name => "byte-buddy-agent", rev => "1.17.7", conf => "compile->default" },
@@ -162,7 +162,7 @@ my $update = {
     
     # ehcache
     "cache-api"                                => { org => "javax.cache", name => "cache-api", rev => "1.1.1" },
-    "ehcache"                                  => { org => "org.ehcache", name => "ehcache", rev => "3.11.1" },
+    "ehcache"                                  => { org => "org.ehcache", name => "ehcache", rev => "3.12.0" },
     "jaxb-runtime"                             => { org => "org.glassfish.jaxb", name => "jaxb-runtime", rev => "4.0.5" },
     
     "ignite-core"                              => { org => "org.apache.ignite", name => "ignite-core", rev => "2.18.0" },
@@ -202,7 +202,9 @@ $update->{"jsp-api"} = $update->{"jakarta.servlet.jsp-api"};
 $update->{"mockito-all"} = $update->{"mockito-core"};
 $update->{"log4j"} = $update->{"log4j-core"};
 $update->{"log4j-slf4j-impl"} = $update->{"log4j-slf4j2-impl"};
-$update->{"mail"} = $update->{"javax.mail-api"};
+$update->{"mail"} = $update->{"jakarta.mail-api"};
+$update->{"javax.mail-api"} = $update->{"jakarta.mail-api"};
+$update->{"javax.mail"} = $update->{"angus-mail"};
 $update->{"displaytag-portlet"} = $update->{"displaytag"};
 $update->{"javax.xml.soap-api"} = $update->{"jakarta.xml.soap-api"};
 $update->{"validation-api"} = $update->{"jakarta.validation-api"};
@@ -239,12 +241,6 @@ my $add_if_missing = {
     ],
     "ehcache" => [
         "jaxb-runtime",
-    ],
-    "javax.mail" => [
-        "javax.activation",
-    ],
-    "javax.mail-api" => [
-        "javax.activation",
     ],
 };
 
@@ -287,9 +283,6 @@ my $exclusions = {
         { org => "com.github.junrar" },
     ],
     "tika-parser-sqlite3-package"   => [],
-    "ehcache"                       => [
-        { org => "org.glassfish.jaxb" },
-    ],
     "ignite-indexing"               => [
         { org => "com.h2database", }
     ],
