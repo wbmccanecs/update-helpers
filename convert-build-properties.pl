@@ -39,7 +39,7 @@ my $xlate = {
     "https://git.mgicint.net/mgic_sysdev/mgic_webapp_template" => 3008,
 };
 my $override_branch = {
-    "https://git.mgicint.net/mgic_sysdev/mgic_business" => "spring6",
+    "https://git.mgicint.net/mgic_sysdev/mgic_business" => "jakarta",
     "https://git.mgicint.net/mgic_sysdev/mgic_mux" => "spring6",
     "https://git.mgicint.net/mgic_sysdev/claims_common" => "spring6",
     "https://git.mgicint.net/mgic_sysdev/mgic_common" => "jakarta",

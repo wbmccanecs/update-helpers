@@ -26,7 +26,6 @@ my @remove_packages = (
     "hibernate-jpa-2.1-api",
     "httpmime",
     'jandex',
-    "jaxb-api",
     "jaxb-core",
     "jaxb-impl",
     "log4jdbc",
@@ -68,7 +67,7 @@ my $update = {
     "spring-test"                              => { org => "org.springframework", name => "spring-test", rev => $springVersion },
     "spring-tx"                                => { org => "org.springframework", name => "spring-tx", rev => $springVersion },
     "spring-jdbc"                              => { org => "org.springframework", name => "spring-jdbc", rev => $springVersion },
-    "spring-data-jpa"                          => { org => "org.springframework.data", name => "spring-data-jpa", rev => "3.5.4" },
+    "spring-data-jpa"                          => { org => "org.springframework.data", name => "spring-data-jpa", rev => "3.5.12" },
     "spring-web"                               => { org => "org.springframework", name => "spring-web", rev => $springVersion },
     "spring-webmvc"                            => { org => "org.springframework", name => "spring-webmvc", rev => $springVersion },
     "spring-websocket"                         => { org => "org.springframework", name => "spring-websocket", rev => $springVersion },
@@ -144,7 +143,8 @@ my $update = {
     "itextpdf"                                 => { org => "com.itextpdf", name => "itextpdf", rev => "5.5.13.3" },
     "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.14" },
     "jakarta.xml.soap-api"                     => { org => "jakarta.xml.soap", name => "jakarta.xml.soap-api", rev => "2.0.1" },
-    "jaxws-api"                                => { org => "javax.xml.ws", name => "jaxws-api", rev => "2.3.0" },
+    "jakarta.xml.ws-api"                       => { org => "jakarta.xml.ws", name => "jakarta.xml.ws-api", rev => "4.0.3" },
+    "jakarta.xml.bind-api"                     => { org => "jakarta.xml.bind", name => "jakarta.xml.bind-api", rev => "4.0.5" },
     "commons-fileupload2-jakarta-servlet6"     => { org => "org.apache.commons", name => "commons-fileupload2-jakarta-servlet6", rev => "2.0.0-M5" },
     "httpmime"                                 => { org => "org.apache.httpcomponents", name => "httpmime", rev => "4.5.13" },
     "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.6.1" },
@@ -212,6 +212,8 @@ $update->{"jstl"} = $update->{"jakarta.servlet.jsp.jstl"};
 $update->{"db2jcc"} = $update->{"jcc"};
 $update->{"db2jcc4"} = $update->{"jcc"};
 $update->{"jta"} = $update->{"jakarta.transaction-api"};
+$update->{"jaxws-api"} = $update->{"jakarta.xml.ws-api"};
+$update->{"jaxb-api"} = $update->{"jakarta.xml.bind-api"};
 
 my $add_if_missing = {
     "javax.servlet.jsp" => [
@@ -225,10 +227,6 @@ my $add_if_missing = {
     ],
     "jakarta.servlet.jsp.jstl" => [
         "jakarta.servlet.jsp.jstl-api",
-    ],
-    "jaxb-api" => [
-        "jaxb-core",
-        "jaxb-impl",
     ],
     "cas-client-core" => [
         "nimbus-jose-jwt",
