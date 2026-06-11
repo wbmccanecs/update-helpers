@@ -255,7 +255,7 @@ sub perform_substitutions {
                 warn BOLD RED "$file_path_raw contains string that looks like matching group so cannot be updated" . RESET . "\n";
                 last;
             } else {
-                if ($dry_run && $slurp =~ m/$compiled_patterns->{$pattern_regex_key}) {
+                if ($dry_run && $slurp =~ m/$compiled_patterns->{$pattern_regex_key}/) {
                     warn BOLD YELLOW "$file_path_raw found match: $pattern_regex_key" . RESET . "\n";
                 } else {
                     while ($slurp =~ s/$compiled_patterns->{$pattern_regex_key}/$patterns_ref->{$pattern_regex_key}/xs) {
