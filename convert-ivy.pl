@@ -136,10 +136,10 @@ my $update = {
 
     # OTHER OTHER
     "jackson-annotations"                      => { org => "com.fasterxml.jackson.core", name => "jackson-annotations", rev => "2.21" },
-    "jackson-core"                             => { org => "com.fasterxml.jackson.core", name => "jackson-core", rev => "2.21.2" },
-    "jackson-databind"                         => { org => "com.fasterxml.jackson.core", name => "jackson-databind", rev => "2.21.2" },
-    "jackson-datatype-jsr310"                  => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-jsr310", rev => "2.21.2" },
-    "jackson-datatype-json-org"                => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-json-org", rev => "2.21.2" },
+    "jackson-core"                             => { org => "com.fasterxml.jackson.core", name => "jackson-core", rev => "2.21.3" },
+    "jackson-databind"                         => { org => "com.fasterxml.jackson.core", name => "jackson-databind", rev => "2.21.3" },
+    "jackson-datatype-jsr310"                  => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-jsr310", rev => "2.21.3" },
+    "jackson-datatype-json-org"                => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-json-org", rev => "2.21.3" },
     "itextpdf"                                 => { org => "com.itextpdf", name => "itextpdf", rev => "5.5.13.3" },
     "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.14" },
     "jakarta.xml.soap-api"                     => { org => "jakarta.xml.soap", name => "jakarta.xml.soap-api", rev => "2.0.1" },
