@@ -16,6 +16,7 @@ my $remove_if_exists = {
 };
 my $java_patterns = {
     "org\\.apache\\.commons\\.lang\\." => "commons-lang",
+    "org\\.apache\\.commons\\.collections\\." => "commons-collections",
     "com\\.ibm\\.mq\\.jms" => "IBM MQ JMS",
     "WebMvcConfigurerAdapter" => "WebMvcConfigurerAdapter",
     "MappingJacksonJsonView *get" => "MappingJacksonJsonView",
@@ -93,6 +94,7 @@ my $yaml_patterns = {
 };
 my $sh_patterns = {
     "umask *022" => "update setenv.sh",
+    "/jre/" => "fix cacerts folder",
 };
 
 my @required_files = (
