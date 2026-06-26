@@ -51,7 +51,7 @@ if ($hibernate5) {
     $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_entity"} = "spring6";
 } else {
     $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_persistence"} = "hibernate6";
-    $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_entity"} = "hibernate6";
+    $override_branch->{"https://git.mgicint.net/mgic_sysdev/mgic_entity"} = "jakarta";
 }
 
 for my $k (keys %$override_branch) {
