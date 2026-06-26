@@ -135,11 +135,11 @@ my $update = {
     "tika-parser-sqlite3-package"              => { org => "org.apache.tika", name => "tika-parser-sqlite3-package", rev => "3.2.3" },
 
     # OTHER OTHER
-    "jackson-annotations"                      => { org => "com.fasterxml.jackson.core", name => "jackson-annotations", rev => "2.21" },
-    "jackson-core"                             => { org => "com.fasterxml.jackson.core", name => "jackson-core", rev => "2.21.3" },
-    "jackson-databind"                         => { org => "com.fasterxml.jackson.core", name => "jackson-databind", rev => "2.21.3" },
-    "jackson-datatype-jsr310"                  => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-jsr310", rev => "2.21.3" },
-    "jackson-datatype-json-org"                => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-json-org", rev => "2.21.3" },
+    "jackson-annotations"                      => { org => "com.fasterxml.jackson.core", name => "jackson-annotations", rev => "2.22" },
+    "jackson-core"                             => { org => "com.fasterxml.jackson.core", name => "jackson-core", rev => "2.22.0" },
+    "jackson-databind"                         => { org => "com.fasterxml.jackson.core", name => "jackson-databind", rev => "2.22.0" },
+    "jackson-datatype-jsr310"                  => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-jsr310", rev => "2.22.0" },
+    "jackson-datatype-json-org"                => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-json-org", rev => "2.22.0" },
     "itextpdf"                                 => { org => "com.itextpdf", name => "itextpdf", rev => "5.5.13.3" },
     "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.14" },
     "jakarta.xml.soap-api"                     => { org => "jakarta.xml.soap", name => "jakarta.xml.soap-api", rev => "2.0.1" },
@@ -169,7 +169,7 @@ my $update = {
     "ignite-spring"                            => { org => "org.apache.ignite", name => "ignite-spring", rev => "2.18.0" },
     "ignite-indexing"                          => { org => "org.apache.ignite", name => "ignite-indexing", rev => "2.18.0" },
     "ignite-log4j2"                            => { org => "org.apache.ignite", name => "ignite-log4j2", rev => "2.18.0" },
-    "ignite-slf4j"                             => { org => "org.apache.ignite", name => "ignite-slf4j", rev => "2.13.0" },
+    "ignite-slf4j"                             => { org => "org.apache.ignite", name => "ignite-slf4j", rev => "2.18.0" },
 };
 
 if ($hibernate5) {
