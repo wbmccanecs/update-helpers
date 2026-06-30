@@ -97,9 +97,10 @@ my $update = {
     "joda-time"                                => { org => "joda-time", name => "joda-time", rev => "2.9.2" },
     "jaxen"                                    => { org => "jaxen", name => "jaxen", rev => "2.0.0" },
     # <!-- Logging -->
-    "log4j-api"                                => { org => "org.apache.logging.log4j", name => "log4j-api", rev => "2.25.4" },
-    "log4j-core"                               => { org => "org.apache.logging.log4j", name => "log4j-core", rev => "2.25.4" },
-    "log4j-slf4j2-impl"                        => { org => "org.apache.logging.log4j", name => "log4j-slf4j2-impl", rev => "2.25.4" },
+    "log4j-api"                                => { org => "org.apache.logging.log4j", name => "log4j-api", rev => "2.26.0" },
+    "log4j-core"                               => { org => "org.apache.logging.log4j", name => "log4j-core", rev => "2.26.0" },
+    "log4j-slf4j2-impl"                        => { org => "org.apache.logging.log4j", name => "log4j-slf4j2-impl", rev => "2.26.0" },
+    "log4j-jakarta-smtp"                       => { org => "org.apache.logging.log4j", name => "log4j-jakarta-smtp", rev => "2.26.0" },
     "jcl-over-slf4j"                           => { org => "org.slf4j", name => "jcl-over-slf4j", rev => "2.0.17" },
     "slf4j-api"                                => { org => "org.slf4j", name => "slf4j-api", rev => "2.0.17" },
     # <!-- UNIT TESTS -->
@@ -239,6 +240,9 @@ my $add_if_missing = {
     ],
     "ehcache" => [
         "jaxb-runtime",
+    ],
+    "jakarta.mail-api" => [
+        "log4j-jakarta-smtp",
     ],
 };
 
