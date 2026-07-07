@@ -85,6 +85,7 @@ my @remove = (
     ".*/log4jdbc",
     '.*/jsr\d+',
     '.*/db2jcc.jar',
+    '.*/fixedformat4j.jar',
 );
 
 while (<$in>) {
