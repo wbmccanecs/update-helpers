@@ -32,7 +32,6 @@ my @remove_packages = (
     "^powermock-",
     "easymock",
     "springfox-swagger2",
-    "log4jdbc",
     "httpcore",
     "aopalliance",
     'jackson-.*-asl',
@@ -42,6 +41,7 @@ my @remove_packages = (
     "jakarta.jms-api",
     "hibernate-annotations",
     "javax.activation",
+    "spring-jdbc",
 );
 
 my $recommendations = {
@@ -66,7 +66,6 @@ my $update = {
     "spring-messaging"                         => { org => "org.springframework", name => "spring-messaging", rev => $springVersion },
     "spring-test"                              => { org => "org.springframework", name => "spring-test", rev => $springVersion },
     "spring-tx"                                => { org => "org.springframework", name => "spring-tx", rev => $springVersion },
-    "spring-jdbc"                              => { org => "org.springframework", name => "spring-jdbc", rev => $springVersion },
     "spring-data-jpa"                          => { org => "org.springframework.data", name => "spring-data-jpa", rev => "3.5.12" },
     "spring-web"                               => { org => "org.springframework", name => "spring-web", rev => $springVersion },
     "spring-webmvc"                            => { org => "org.springframework", name => "spring-webmvc", rev => $springVersion },
@@ -147,7 +146,6 @@ my $update = {
     "jakarta.xml.ws-api"                       => { org => "jakarta.xml.ws", name => "jakarta.xml.ws-api", rev => "4.0.3" },
     "jakarta.xml.bind-api"                     => { org => "jakarta.xml.bind", name => "jakarta.xml.bind-api", rev => "4.0.5" },
     "commons-fileupload2-jakarta-servlet6"     => { org => "org.apache.commons", name => "commons-fileupload2-jakarta-servlet6", rev => "2.0.0-M5" },
-    "httpmime"                                 => { org => "org.apache.httpcomponents", name => "httpmime", rev => "4.5.13" },
     "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.6.1" },
     "httpclient5-cache"                        => { org => "org.apache.httpcomponents.client5", name => "httpclient5-cache", rev => "5.6" },
     "xmlbeans"                                 => { org => "org.apache.xmlbeans", name => "xmlbeans", rev => "3.0.0" },
