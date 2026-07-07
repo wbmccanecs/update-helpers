@@ -91,7 +91,6 @@ my $update = {
     "commons-beanutils"                        => { org => "commons-beanutils", name => "commons-beanutils", rev => "1.11.0" },
     "commons-dbcp2"                            => { org => "org.apache.commons", name => "commons-dbcp2", rev => "2.14.0" },
     "commons-io"                               => { org => "commons-io", name => "commons-io", rev => "2.20.0" },
-    "jakarta.mail-api"                         => { org => "jakarta.mail", name => "jakarta.mail-api", rev => "2.2.0-M1" },
     "angus-mail"                               => { org => "org.eclipse.angus", name => "angus-mail", rev => "2.1.0-M1" },
     "joda-time"                                => { org => "joda-time", name => "joda-time", rev => "2.9.2" },
     "jaxen"                                    => { org => "jaxen", name => "jaxen", rev => "2.0.0" },
@@ -146,7 +145,7 @@ my $update = {
     "jakarta.xml.ws-api"                       => { org => "jakarta.xml.ws", name => "jakarta.xml.ws-api", rev => "4.0.3" },
     "jakarta.xml.bind-api"                     => { org => "jakarta.xml.bind", name => "jakarta.xml.bind-api", rev => "4.0.5" },
     "commons-fileupload2-jakarta-servlet6"     => { org => "org.apache.commons", name => "commons-fileupload2-jakarta-servlet6", rev => "2.0.0-M5" },
-    "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.6.1" },
+    "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.6.2" },
     "httpclient5-cache"                        => { org => "org.apache.httpcomponents.client5", name => "httpclient5-cache", rev => "5.6" },
     "xmlbeans"                                 => { org => "org.apache.xmlbeans", name => "xmlbeans", rev => "3.0.0" },
     "hibernate-commons-annotations"            => { org => "org.hibernate.common", name => "hibernate-commons-annotations", rev => "5.1.1.Final" },
@@ -201,8 +200,9 @@ $update->{"jsp-api"} = $update->{"jakarta.servlet.jsp-api"};
 $update->{"mockito-all"} = $update->{"mockito-core"};
 $update->{"log4j"} = $update->{"log4j-core"};
 $update->{"log4j-slf4j-impl"} = $update->{"log4j-slf4j2-impl"};
-$update->{"mail"} = $update->{"jakarta.mail-api"};
-$update->{"javax.mail-api"} = $update->{"jakarta.mail-api"};
+$update->{"mail"} = $update->{"angus-mail"};
+$update->{"javax.mail-api"} = $update->{"angus-mail"};
+$update->{"jakarta.mail-api"} = $update->{"angus-mail"};
 $update->{"javax.mail"} = $update->{"angus-mail"};
 $update->{"displaytag-portlet"} = $update->{"displaytag"};
 $update->{"javax.xml.soap-api"} = $update->{"jakarta.xml.soap-api"};
@@ -239,7 +239,7 @@ my $add_if_missing = {
     "ehcache" => [
         "jaxb-runtime",
     ],
-    "jakarta.mail-api" => [
+    "angus-mail" => [
         "log4j-jakarta-smtp",
     ],
 };
