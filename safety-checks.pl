@@ -17,6 +17,7 @@ my $remove_if_exists = {
 my $java_patterns = {
     "org\\.apache\\.commons\\.lang\\." => "commons-lang",
     "org\\.apache\\.commons\\.collections\\." => "commons-collections",
+    "org\\.apache\\.commons\\.logging\\." => "commons-logging",
     "com\\.ibm\\.mq\\.jms" => "IBM MQ JMS",
     "WebMvcConfigurerAdapter" => "WebMvcConfigurerAdapter",
     "MappingJacksonJsonView *get" => "MappingJacksonJsonView",
