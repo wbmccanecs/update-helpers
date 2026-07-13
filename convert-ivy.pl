@@ -92,7 +92,7 @@ my $update = {
     "commons-dbcp2"                            => { org => "org.apache.commons", name => "commons-dbcp2", rev => "2.14.0" },
     "commons-io"                               => { org => "commons-io", name => "commons-io", rev => "2.22.0" },
     "angus-mail"                               => { org => "org.eclipse.angus", name => "angus-mail", rev => "2.1.0-M1" },
-    "joda-time"                                => { org => "joda-time", name => "joda-time", rev => "2.9.2" },
+    "joda-time"                                => { org => "joda-time", name => "joda-time", rev => "2.14.0" },
     "jaxen"                                    => { org => "jaxen", name => "jaxen", rev => "2.0.6" },
     # <!-- Logging -->
     "log4j-api"                                => { org => "org.apache.logging.log4j", name => "log4j-api", rev => "2.26.0" },
@@ -113,7 +113,7 @@ my $update = {
     "jakarta.servlet.jsp-api"                  => { org => "jakarta.servlet.jsp", name => "jakarta.servlet.jsp-api", rev => "4.0.0", conf => 'compile->default' },
     "jakarta.servlet.jsp.jstl"                 => { org => "org.glassfish.web", name => "jakarta.servlet.jsp.jstl", rev => "3.0.1" },
     "jakarta.servlet.jsp.jstl-api"             => { org => "jakarta.servlet.jsp.jstl", name => "jakarta.servlet.jsp.jstl-api", rev => "3.0.2" },
-    "lombok"                                   => { org => "org.projectlombok", name => "lombok", rev => "1.18.38" },
+    "lombok"                                   => { org => "org.projectlombok", name => "lombok", rev => "1.18.46" },
     "jakarta.annotation-api"                   => { org => "jakarta.annotation", name => "jakarta.annotation-api", rev=> "3.0.0" },
     "byte-buddy-agent"                         => { org => "net.bytebuddy", name => "byte-buddy-agent", rev => "1.17.7", conf => "compile->default" },
     # <!-- Hibernate -->
@@ -140,7 +140,7 @@ my $update = {
     "jackson-datatype-jsr310"                  => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-jsr310", rev => "2.22.1" },
     "jackson-datatype-json-org"                => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-json-org", rev => "2.22.1" },
     "itextpdf"                                 => { org => "com.itextpdf", name => "itextpdf", rev => "5.5.13.3" },
-    "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.14" },
+    "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.19.0" },
     "jakarta.xml.soap-api"                     => { org => "jakarta.xml.soap", name => "jakarta.xml.soap-api", rev => "3.0.2" },
     "jakarta.xml.ws-api"                       => { org => "jakarta.xml.ws", name => "jakarta.xml.ws-api", rev => "4.0.3" },
     "jakarta.xml.bind-api"                     => { org => "jakarta.xml.bind", name => "jakarta.xml.bind-api", rev => "4.0.5" },
