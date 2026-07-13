@@ -37,7 +37,7 @@ my $java_patterns = {
     "isAuthorizedUser" => "replace with manageAuthorizedUser",
     "EmployeeLdapHelper[^V]" => "remove EmployeeLdapHelper",
     "(ticketValidation|authentication)Filter" => "remove ticketValidation and authentication filters",
-    "\\.setApplicationId\\([_\\w]+\\)" => "convert from setApplicationId() to setUrl()",
+    '\.setApplicationId\(\D[_\w]+\)' => "convert from setApplicationId() to setUrl()",
     "\@DependsOn" => "replace \@DependsOn with DI",
     "com.mgic.(spring|system).Environment" => "refactor to use environment properties",
     "import [\\w\\.]+\.EnvironmentHelper" => "import mgic.com.spring.Environment",
@@ -57,6 +57,8 @@ my $java_patterns = {
     '(\w*JdbcTemplate)' => '$1',
     'BigDecimal.*getResult' => 'query returns BigDecimal',
     'filter\.PageFilter' => 'replace PageFilter with SiteMeshFilter',
+    'com\.mgic\.business\.aims\.' => 'use aimservice-client.jar',
+    'org\.hibernate\.annotations\.Named' => 'use JPA NamedNativeQuery',
 };
 my $xml_patterns = {
     "org\\.jasig" => "jasig CAS",
