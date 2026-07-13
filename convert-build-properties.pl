@@ -40,7 +40,7 @@ my $xlate = {
 };
 my $override_branch = {
     "https://git.mgicint.net/mgic_sysdev/mgic_business" => "jakarta",
-    "https://git.mgicint.net/mgic_sysdev/mgic_mux" => "spring6",
+    "https://git.mgicint.net/mgic_sysdev/mgic_mux" => "jakarta",
     "https://git.mgicint.net/mgic_sysdev/claims_common" => "spring6",
     "https://git.mgicint.net/mgic_sysdev/mgic_common" => "jakarta",
     "https://git.mgicint.net/mgic_sysdev/mgic_jaxb" => "jakarta",
@@ -60,8 +60,8 @@ for my $k (keys %$override_branch) {
 my $override_path = {
     "esb%2Fesb-common.jar" => "esb_common.git%2Fspring6%2Fesb-common.jar",
     "esb%2Fesb-services.jar" => "esb_common.git%2Fspring6%2Fesb-services.jar",
-    "esb_common.git%2Fmaster%2Fesb-common.jar" => "esb_common.git%2Fspring6%2Fesb-common.jar",
-    "esb_common.git%2Fmaster%2Fesb-services.jar" => "esb_common.git%2Fspring6%2Fesb-services.jar",
+    "esb_common.git%2Fmaster%2Fesb-common.jar" => "esb_common.git%2Fjakarta%2Fesb-common.jar",
+    "esb_common.git%2Fmaster%2Fesb-services.jar" => "esb_common.git%2Fjakarta%2Fesb-services.jar",
 };
 
 my @remove = (
