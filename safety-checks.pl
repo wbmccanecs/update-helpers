@@ -98,6 +98,11 @@ my $sh_patterns = {
     "umask *022" => "update setenv.sh",
     "/jre/" => "fix cacerts folder",
 };
+my $file_patterns = {
+    '.gitignore' => {
+        '/libraries/' => 'fix libraries exclusion',
+    },
+};
 
 my @required_files = (
     'pom.xml',
@@ -108,13 +113,12 @@ my @required_files = (
     '.gitignore',
 );
 
-
 my $checks;
 my ($help);
 
 GetOptions(
-    "dir|d=s"        => \$start_directory,
-    "help|h"        => \$help,
+    "dir|d=s"   => \$start_directory,
+    "help|h"    => \$help,
 ) or usage();
 
 if ($help) {
@@ -156,20 +160,20 @@ sub safety_check {
 
     my %compiled_patterns;
     foreach my $p (keys %$patterns_ref) {
-    eval {
-        $compiled_patterns{$p} = qr/$p/;
-    };
-    if ($@) {
-        print BOLD RED "Error: Invalid regular expression pattern '$p': $@\n" . RESET;
-        exit 1;
-    }
+        eval {
+            $compiled_patterns{$p} = qr/$p/;
+        };
+        if ($@) {
+            print BOLD RED "Error: Invalid regular expression pattern '$p': $@\n" . RESET;
+            exit 1;
+        }
     }
 
     print BOLD BLUE "\n---Running Safety Check for *.$file_extension files ---\n" . RESET;
     print BOLD BLUE "  Target files with extension: " . $file_extension . "\n" . RESET;
     print BOLD BLUE "  Searching for patterns:\n" . RESET;
     foreach my $p_regex (sort keys %$patterns_ref) {
-    print BOLD BLUE "    - '$p_regex' (Identified as: " . $patterns_ref->{$p_regex} . ")\n" . RESET;
+        print BOLD BLUE "    - '$p_regex' (Identified as: " . $patterns_ref->{$p_regex} . ")\n" . RESET;
     }
     print BOLD BLUE "  Starting directory: " . $current_dir . "\n" . RESET;
     print "-" x 50 . "\n\n";
@@ -177,74 +181,80 @@ sub safety_check {
     my $file_count = 0;
 
     my $wanted_sub = sub {
-    # Skip common development/build directories
-    if (-d $_) {
-        (my $full_path_relative = $File::Find::name) =~ s#\\#/#g;
+        # Skip common development/build directories
+        if (-d $_) {
+            (my $full_path_relative = $File::Find::name) =~ s#\\#/#g;
 
-        if (
-        $full_path_relative =~ '.*/.git' ||
-        $full_path_relative =~ '.*/target' ||
-        $full_path_relative =~ '.*/build' ||
-        $full_path_relative =~ '.*/node_modules' ||
-        $full_path_relative =~ '.*/bin' ||
-        $full_path_relative =~ '.*/out' ||
-        $full_path_relative =~ '.*/deploy' ||
-        $full_path_relative =~ '.*/reports' ||
-        $full_path_relative =~ '.*/test-automation' ||
-        $full_path_relative =~ '.*/test-bin' ||
-        $full_path_relative =~ '.*/war/META-INF' ||
-        $full_path_relative =~ '.*/war/WEB-INF/classes' ||
-        $full_path_relative =~ '.*/war/WEB-INF/lib' ||
-        $full_path_relative =~ '.*/.settings' # Eclipse project files
-        ) {
-        $File::Find::prune = 1; # Don't traverse into this directory
-        return;
+            if (
+                $full_path_relative =~ '.*/.git' ||
+                $full_path_relative =~ '.*/target' ||
+                $full_path_relative =~ '.*/build' ||
+                $full_path_relative =~ '.*/node_modules' ||
+                $full_path_relative =~ '.*/bin' ||
+                $full_path_relative =~ '.*/out' ||
+                $full_path_relative =~ '.*/deploy' ||
+                $full_path_relative =~ '.*/reports' ||
+                $full_path_relative =~ '.*/test-automation' ||
+                $full_path_relative =~ '.*/test-bin' ||
+                $full_path_relative =~ '.*/war/META-INF' ||
+                $full_path_relative =~ '.*/war/WEB-INF/classes' ||
+                $full_path_relative =~ '.*/war/WEB-INF/lib' ||
+                $full_path_relative =~ '.*/.settings' # Eclipse project files
+            ) {
+                $File::Find::prune = 1; # Don't traverse into this directory
+                return;
+            }
         }
-    }
 
-    # only process regular files
-    return unless -f $_;
+        # only process regular files
+        return unless -f $_;
 
-    my $file_path_raw = $File::Find::name;
-    my ($filename, $dirs, $suffix) = fileparse($file_path_raw, qr/\.[^.]*$/);
+        my $validated = check_single_file($_, $File::Find::name, $lc_target_extension_with_dot, \%compiled_patterns, $patterns_ref);
+        $file_count++ if $validated;
+    };
 
-    return unless lc $suffix eq $lc_target_extension_with_dot;
+    find($wanted_sub, $current_dir);
+    print BOLD BLUE "  Validated files: " . $file_count . "\n" . RESET;
+    print "-" x 50 . "\n\n";
+}
+
+sub check_single_file {
+    my ($file_to_open, $file_path_display, $lc_target_extension_with_dot, $compiled_patterns, $patterns_ref) = @_;
+
+    my ($filename, $dirs, $suffix) = fileparse($file_path_display, qr/\.[^.]*$/);
+
+    return 0 unless lc $suffix eq $lc_target_extension_with_dot;
 
     # remove unwanted files
     if ($remove_if_exists->{$filename}) {
-        print BOLD YELLOW "$file_path_raw " . $remove_if_exists->{$filename} . "\n" . RESET;
-        return;
+        print BOLD YELLOW "$file_path_display " . $remove_if_exists->{$filename} . "\n" . RESET;
+        return 0;
     }
 
-    open my $fh, "<", $_ or do {
-        warn BOLD YELLOW "Warning: could not open $file_path_raw: $!" . RESET . "\n";
-        return;
+    open my $fh, "<", $file_to_open or do {
+        warn BOLD YELLOW "Warning: could not open $file_path_display: $!" . RESET . "\n";
+        return 0;
     };
-
-    ++$file_count;
 
     my $line_num = 0;
     my $file_has_match = 0;
 
     while (my $line = <$fh>) {
         $line_num ++;
-        for my $pattern_regex_key (keys %compiled_patterns) {
-        if ($line =~ $compiled_patterns{$pattern_regex_key}) {
-            $file_has_match = 1;
-            my $output_string = $patterns_ref->{$pattern_regex_key};
-            my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-            $output_string =~ s/\$(\d+)/$matches[$1-1]/ge;
-            print BOLD YELLOW "$file_path_raw " . $output_string . "\n" . RESET;
-        }
+        for my $pattern_regex_key (keys %$compiled_patterns) {
+            if ($line =~ $compiled_patterns->{$pattern_regex_key}) {
+                $file_has_match = 1;
+                my $output_string = $patterns_ref->{$pattern_regex_key};
+                my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+                $output_string =~ s/\$(\d+)/$matches[$1-1]/ge;
+                print BOLD YELLOW "$file_path_display " . $output_string . "\n" . RESET;
+            }
         }
         last if $file_has_match;
     }
     close $fh;
-    };
 
-    find($wanted_sub, $current_dir);
-    print BOLD BLUE "  Validated files: " . $file_count . "\n" . RESET;
-    print "-" x 50 . "\n\n";
+    return 1;
 }
 
 sub misc_checks {
