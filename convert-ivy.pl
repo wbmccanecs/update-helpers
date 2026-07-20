@@ -129,9 +129,9 @@ my $update = {
     # <!-- Other -->
     "poi"                                      => { org => "org.apache.poi", name => "poi", rev => "5.4.1" },
     "poi-ooxml"                                => { org => "org.apache.poi", name => "poi-ooxml", rev => "5.4.1" },
-    "tika-core"                                => { org => "org.apache.tika", name => "tika-core", rev => "3.2.3" },
-    "tika-parsers-standard-package"            => { org => "org.apache.tika", name => "tika-parsers-standard-package", rev => "3.2.3" },
-    "tika-parser-sqlite3-package"              => { org => "org.apache.tika", name => "tika-parser-sqlite3-package", rev => "3.2.3" },
+    "tika-core"                                => { org => "org.apache.tika", name => "tika-core", rev => "3.3.1" },
+    "tika-parsers-standard-package"            => { org => "org.apache.tika", name => "tika-parsers-standard-package", rev => "3.3.1" },
+    "tika-parser-sqlite3-package"              => { org => "org.apache.tika", name => "tika-parser-sqlite3-package", rev => "3.3.1" },
 
     # OTHER OTHER
     "jackson-annotations"                      => { org => "com.fasterxml.jackson.core", name => "jackson-annotations", rev => "2.22" },
@@ -139,8 +139,10 @@ my $update = {
     "jackson-databind"                         => { org => "com.fasterxml.jackson.core", name => "jackson-databind", rev => "2.22.1" },
     "jackson-datatype-jsr310"                  => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-jsr310", rev => "2.22.1" },
     "jackson-datatype-json-org"                => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-json-org", rev => "2.22.1" },
-    "itextpdf"                                 => { org => "com.itextpdf", name => "itextpdf", rev => "5.5.13.3" },
-    "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.19.0" },
+    "itextpdf"                                 => { org => "com.itextpdf", name => "itextpdf", rev => "5.5.13.4" },
+    "itext-pdfa"                               => { org => "com.itextpdf", name => "itext-pdfa", rev => "5.5.13.4" },
+    "itext-xtra"                               => { org => "com.itextpdf", name => "itext-xtra", rev => "5.5.13.4" },
+    "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.22.0" },
     "jakarta.xml.soap-api"                     => { org => "jakarta.xml.soap", name => "jakarta.xml.soap-api", rev => "3.0.2" },
     "jakarta.xml.ws-api"                       => { org => "jakarta.xml.ws", name => "jakarta.xml.ws-api", rev => "4.0.3" },
     "jakarta.xml.bind-api"                     => { org => "jakarta.xml.bind", name => "jakarta.xml.bind-api", rev => "4.0.5" },
@@ -175,9 +177,9 @@ if ($hibernate5) {
     $update->{"hibernate-jpamodelgen"}                    = { org => "org.hibernate", name => "hibernate-jpamodelgen", rev => "5.6.15.Final" };
     push @remove_packages, "hibernate-community-dialects";
 } else {
-    $update->{"hibernate-core"}                           = { org => "org.hibernate.orm", name => "hibernate-core", rev => "6.6.48.Final" };
-    $update->{"hibernate-jpamodelgen"}                    = { org => "org.hibernate.orm", name => "hibernate-jpamodelgen", rev => "6.6.48.Final" };
-    $update->{"hibernate-community-dialects"}             = { org => "org.hibernate.orm", name => "hibernate-community-dialects", rev => "6.6.48.Final" };
+    $update->{"hibernate-core"}                           = { org => "org.hibernate.orm", name => "hibernate-core", rev => "6.6.54.Final" };
+    $update->{"hibernate-jpamodelgen"}                    = { org => "org.hibernate.orm", name => "hibernate-jpamodelgen", rev => "6.6.54.Final" };
+    $update->{"hibernate-community-dialects"}             = { org => "org.hibernate.orm", name => "hibernate-community-dialects", rev => "6.6.54.Final" };
 }
 
 # replaced packages
