@@ -100,7 +100,7 @@ my $sh_patterns = {
 };
 my $file_patterns = {
     '.gitignore' => {
-        '/libraries/' => 'fix libraries exclusion',
+        '\.idea.*/libraries' => 'fix libraries exclusion',
     },
 };
 
@@ -149,6 +149,7 @@ safety_check($start_directory, 'xml', $xml_patterns) if $checks->{xml} || $check
 safety_check($start_directory, 'iml', $iml_patterns) if $checks->{iml} || $checkAll;
 safety_check($start_directory, 'yml', $yaml_patterns) if $checks->{yml} || $checkAll;
 safety_check($start_directory, 'sh', $sh_patterns) if $checks->{sh} || $checkAll;
+file_pattern_safety_checks($start_directory, $file_patterns) if $checks->{files} || $checks->{file_patterns} || $checkAll;
 misc_checks($start_directory) if $checks->{misc} || $checkAll;
 print BOLD GREEN "--- All Safety Checks Complete ---\n" . RESET;
 exit 0;
@@ -223,7 +224,9 @@ sub check_single_file {
 
     my ($filename, $dirs, $suffix) = fileparse($file_path_display, qr/\.[^.]*$/);
 
-    return 0 unless lc $suffix eq $lc_target_extension_with_dot;
+    if (defined $lc_target_extension_with_dot && $lc_target_extension_with_dot ne '') {
+        return 0 unless lc $suffix eq $lc_target_extension_with_dot;
+    }
 
     # remove unwanted files
     if ($remove_if_exists->{$filename}) {
@@ -255,6 +258,107 @@ sub check_single_file {
     close $fh;
 
     return 1;
+}
+
+sub file_pattern_safety_checks {
+    my ($current_dir, $file_patterns_ref) = @_;
+
+    my %compiled_wildcards;
+    my %compiled_patterns_by_wildcard;
+
+    foreach my $wildcard (keys %$file_patterns_ref) {
+        my $regex_str = quotemeta($wildcard);
+        $regex_str =~ s/\\\*/.*/g;
+        $regex_str =~ s/\\\?/./g;
+        eval {
+            if ($wildcard =~ m#/#) {
+                $compiled_wildcards{$wildcard} = qr/(?:^|\/)$regex_str$/;
+            } else {
+                $compiled_wildcards{$wildcard} = qr/^$regex_str$/;
+            }
+        };
+        if ($@) {
+            print BOLD RED "Error: Invalid wildcard pattern '$wildcard': $@\n" . RESET;
+            exit 1;
+        }
+
+        my $patterns_ref = $file_patterns_ref->{$wildcard};
+        my %compiled_patterns;
+        foreach my $p (keys %$patterns_ref) {
+            eval {
+                $compiled_patterns{$p} = qr/$p/;
+            };
+            if ($@) {
+                print BOLD RED "Error: Invalid regular expression pattern '$p' under wildcard '$wildcard': $@\n" . RESET;
+                exit 1;
+            }
+        }
+        $compiled_patterns_by_wildcard{$wildcard} = \%compiled_patterns;
+    }
+
+    print BOLD BLUE "\n---Running Safety Check for Wildcard File Patterns ---\n" . RESET;
+    print BOLD BLUE "  Target wildcards: " . join(", ", sort keys %$file_patterns_ref) . "\n" . RESET;
+    print BOLD BLUE "  Starting directory: " . $current_dir . "\n" . RESET;
+    print "-" x 50 . "\n\n";
+
+    my $file_count = 0;
+
+    my $wanted_sub = sub {
+        # Skip common development/build directories
+        if (-d $_) {
+            (my $full_path_relative = $File::Find::name) =~ s#\\#/#g;
+
+            if (
+                $full_path_relative =~ '.*/.git' ||
+                $full_path_relative =~ '.*/target' ||
+                $full_path_relative =~ '.*/build' ||
+                $full_path_relative =~ '.*/node_modules' ||
+                $full_path_relative =~ '.*/bin' ||
+                $full_path_relative =~ '.*/out' ||
+                $full_path_relative =~ '.*/deploy' ||
+                $full_path_relative =~ '.*/reports' ||
+                $full_path_relative =~ '.*/test-automation' ||
+                $full_path_relative =~ '.*/test-bin' ||
+                $full_path_relative =~ '.*/war/META-INF' ||
+                $full_path_relative =~ '.*/war/WEB-INF/classes' ||
+                $full_path_relative =~ '.*/war/WEB-INF/lib' ||
+                $full_path_relative =~ '.*/.settings' # Eclipse project files
+            ) {
+                $File::Find::prune = 1; # Don't traverse into this directory
+                return;
+            }
+        }
+
+        # only process regular files
+        return unless -f $_;
+
+        my $filename_to_match = $_;
+        (my $path_to_match = $File::Find::name) =~ s#\\#/#g;
+
+        foreach my $wildcard (keys %compiled_wildcards) {
+            my $matches_wildcard = 0;
+            if ($wildcard =~ m#/#) {
+                $matches_wildcard = ($path_to_match =~ $compiled_wildcards{$wildcard});
+            } else {
+                $matches_wildcard = ($filename_to_match =~ $compiled_wildcards{$wildcard});
+            }
+
+            if ($matches_wildcard) {
+                my $validated = check_single_file(
+                    $_,
+                    $File::Find::name,
+                    undef,
+                    $compiled_patterns_by_wildcard{$wildcard},
+                    $file_patterns_ref->{$wildcard}
+                );
+                $file_count++ if $validated;
+            }
+        }
+    };
+
+    find($wanted_sub, $current_dir);
+    print BOLD BLUE "  Validated files: " . $file_count . "\n" . RESET;
+    print "-" x 50 . "\n\n";
 }
 
 sub misc_checks {
