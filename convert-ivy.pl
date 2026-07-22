@@ -2,17 +2,34 @@
 
 use strict;
 use warnings;
+use File::stat;
+use File::Find;
 use Term::ANSIColor qw{:constants};
-use version;    # provides version parsing and comparisons (not sure it is semver compatible)
+use version;
 
 my $ivy_file = "ivy.xml";
 my $output_file = "ivy.xml.new";
 
-my ($help,$hibernate5) = (0) x 2;
+my ($help, $hibernate5, $no_ui, $audit_deps) = (0) x 4;
 
 for my $arg (@ARGV) {
     my $key = lc($arg);
-    $hibernate5 = 1 if $key eq "5";
+    $hibernate5 = 1 if $key eq "5" || $key eq "--hibernate5";
+    $no_ui = 1 if $key eq "noui" || $key eq "headless" || $key eq "--no-ui";
+    $audit_deps = 1 if $key eq "audit" || $key eq "--audit-deps";
+}
+
+my %unused_deps_to_drop;
+
+if ($audit_deps) {
+    my $libdir = (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
+    my @src_dirs = ('src', 'test');
+    push @src_dirs, "../mgic_business/src" if -e "$libdir/mgic-business.jar";
+    push @src_dirs, "../mgic_common/src" if -e "$libdir/mgic-common.jar";
+    push @src_dirs, "../mgic_entity/src" if -e "$libdir/mgic-entity-custom.jar" || -e "$libdir/mgic-entity-master.jar";
+    push @src_dirs, "../mgic_persistence/src" if -e "$libdir/mgic-persistence.jar";
+
+    %unused_deps_to_drop = get_unused_direct_dependencies(\@src_dirs, $libdir);
 }
 
 my @remove_packages = (
@@ -45,19 +62,19 @@ my @remove_packages = (
 );
 
 my $recommendations = {
-    'esapi' => 'convert Query to use bind parameters and remove esapi dependency',
-    'apereo' => 'convert to EmployeeFormBasedAuthForLDAP and remove apereo dependencies',
+    'esapi'        => 'convert Query to use bind parameters and remove esapi dependency',
+    'apereo'       => 'convert to EmployeeFormBasedAuthForLDAP and remove apereo dependencies',
     'commons-lang' => 'convert all classes to use commons-lang3, try to remove commons-lang dependency',
 };
 
 my $springVersion = '6.2.19';
 my $springSecurityVersion = '6.5.4';
 
-my @keyOrder = ( "org", "module", "name" );
+my @keyOrder = ("org", "module", "name");
 
 my $update = {
     # <!-- Spring -->
-    "spring-core"                             => { org => "org.springframework", name => "spring-core", rev => $springVersion },
+    "spring-core"                              => { org => "org.springframework", name => "spring-core", rev => $springVersion },
     "spring-beans"                             => { org => "org.springframework", name => "spring-beans", rev => $springVersion },
     "spring-context"                           => { org => "org.springframework", name => "spring-context", rev => $springVersion },
     "spring-context-support"                   => { org => "org.springframework", name => "spring-context-support", rev => $springVersion },
@@ -114,7 +131,7 @@ my $update = {
     "jakarta.servlet.jsp.jstl"                 => { org => "org.glassfish.web", name => "jakarta.servlet.jsp.jstl", rev => "3.0.1" },
     "jakarta.servlet.jsp.jstl-api"             => { org => "jakarta.servlet.jsp.jstl", name => "jakarta.servlet.jsp.jstl-api", rev => "3.0.2" },
     "lombok"                                   => { org => "org.projectlombok", name => "lombok", rev => "1.18.46" },
-    "jakarta.annotation-api"                   => { org => "jakarta.annotation", name => "jakarta.annotation-api", rev=> "3.0.0" },
+    "jakarta.annotation-api"                   => { org => "jakarta.annotation", name => "jakarta.annotation-api", rev => "3.0.0" },
     "byte-buddy-agent"                         => { org => "net.bytebuddy", name => "byte-buddy-agent", rev => "1.17.7", conf => "compile->default" },
     # <!-- Hibernate -->
     "hibernate-validator"                      => { org => "org.hibernate.validator", name => "hibernate-validator", rev => "8.0.0.Final" },
@@ -159,12 +176,12 @@ my $update = {
 
     # current versions just to help convert old build.xml projects to ivy.xml
     "jsch"                                     => { org => "com.jcraft", name => "jsch", rev => "0.1.54" },
-    
+
     # ehcache
     "cache-api"                                => { org => "javax.cache", name => "cache-api", rev => "1.1.1" },
     "ehcache"                                  => { org => "org.ehcache", name => "ehcache", rev => "3.12.0" },
     "jaxb-runtime"                             => { org => "org.glassfish.jaxb", name => "jaxb-runtime", rev => "4.0.5" },
-    
+
     "ignite-core"                              => { org => "org.apache.ignite", name => "ignite-core", rev => "2.18.0" },
     "ignite-spring"                            => { org => "org.apache.ignite", name => "ignite-spring", rev => "2.18.0" },
     "ignite-indexing"                          => { org => "org.apache.ignite", name => "ignite-indexing", rev => "2.18.0" },
@@ -173,13 +190,14 @@ my $update = {
 };
 
 if ($hibernate5) {
-    $update->{"hibernate-core-jakarta"}                   = { org => "org.hibernate", name => "hibernate-core-jakarta", rev => "5.6.15.Final" };
-    $update->{"hibernate-jpamodelgen"}                    = { org => "org.hibernate", name => "hibernate-jpamodelgen", rev => "5.6.15.Final" };
+    $update->{"hibernate-core-jakarta"} = { org => "org.hibernate", name => "hibernate-core-jakarta", rev => "5.6.15.Final" };
+    $update->{"hibernate-jpamodelgen"} = { org => "org.hibernate", name => "hibernate-jpamodelgen", rev => "5.6.15.Final" };
     push @remove_packages, "hibernate-community-dialects";
-} else {
-    $update->{"hibernate-core"}                           = { org => "org.hibernate.orm", name => "hibernate-core", rev => "6.6.54.Final" };
-    $update->{"hibernate-jpamodelgen"}                    = { org => "org.hibernate.orm", name => "hibernate-jpamodelgen", rev => "6.6.54.Final" };
-    $update->{"hibernate-community-dialects"}             = { org => "org.hibernate.orm", name => "hibernate-community-dialects", rev => "6.6.54.Final" };
+}
+else {
+    $update->{"hibernate-core"} = { org => "org.hibernate.orm", name => "hibernate-core", rev => "6.6.54.Final" };
+    $update->{"hibernate-jpamodelgen"} = { org => "org.hibernate.orm", name => "hibernate-jpamodelgen", rev => "6.6.54.Final" };
+    $update->{"hibernate-community-dialects"} = { org => "org.hibernate.orm", name => "hibernate-community-dialects", rev => "6.6.54.Final" };
 }
 
 # replaced packages
@@ -190,7 +208,8 @@ $update->{"commons-fileupload"} = $update->{"commons-fileupload2-jakarta-servlet
 $update->{"encoder-jsp"} = $update->{"encoder-jakarta-jsp"};
 if ($hibernate5) {
     $update->{"hibernate-core"} = $update->{"hibernate-core-jakarta"};
-} else {
+}
+else {
     $update->{"hibernate-core-jakarta"} = $update->{"hibernate-core"};
 }
 $update->{"httpclient"} = $update->{"httpclient5"};
@@ -217,49 +236,39 @@ $update->{"jaxws-api"} = $update->{"jakarta.xml.ws-api"};
 $update->{"jaxb-api"} = $update->{"jakarta.xml.bind-api"};
 
 my $add_if_missing = {
-    "javax.servlet.jsp" => [
+    "javax.servlet.jsp"        => [
         "jakarta.servlet.jsp-api",
     ],
-    "jakarta.servlet.jsp-api" => [
+    "jakarta.servlet.jsp-api"  => [
         "jakarta.servlet.jsp.jstl",
     ],
-    "jstl" => [
+    "jstl"                     => [
         "jakarta.servlet.jsp.jstl-api",
     ],
     "jakarta.servlet.jsp.jstl" => [
         "jakarta.servlet.jsp.jstl-api",
     ],
-    "cas-client-core" => [
+    "cas-client-core"          => [
         "nimbus-jose-jwt",
     ],
-    "mockito-all" => [
+    "mockito-all"              => [
         "byte-buddy-agent",
     ],
-    "mockito-core" => [
+    "mockito-core"             => [
         "byte-buddy-agent",
     ],
-    "ehcache" => [
+    "ehcache"                  => [
         "jaxb-runtime",
     ],
-    "angus-mail" => [
+    "angus-mail"               => [
         "log4j-jakarta-smtp",
     ],
 };
 
-$add_if_missing->{$hibernate5 ? "hibernate-core-jakarta" : "hibernate-core" } = [
-            "dom4j",
-            "byte-buddy",
-            "jakarta.persistence-api",
-            "jakarta.transaction-api",
-        ];
-$add_if_missing->{"jcc"} = [
-    "hibernate-community-dialects"
-] if (!$hibernate5);
-
 my $keep_if_exists = {
     "commons-lang" => "commons-lang3",
-    "httpclient" => "httpclient5",
-    "httpcore" => "httpclient5",
+    "httpclient"   => "httpclient5",
+    "httpcore"     => "httpclient5",
 };
 
 my $exclusions = {
@@ -290,6 +299,27 @@ my $exclusions = {
     ],
 };
 
+my $remove_redundant_transitives_versioned = {
+    'angus-mail'             => {
+        'jakarta.mail-api'     => '2.2.0-M1',
+        'angus.activation-api' => '2.2.0-M1',
+    },
+    'hibernate-core'         => {
+        'byte-buddy'              => '1.17.5',
+        'jakarta.persistence-api' => '3.1.0',
+        'jakarta.transaction-api' => '2.0.1',
+        'jakarta.xml.bind-api'    => '4.0.2',
+        'jaxb-runtime'            => '4.0.5',
+        'antlr'                   => '4.13.0',
+    },
+    'hibernate-core-jakarta' => {
+        'antlr'                   => '2.7.7',
+        'byte-buddy'              => '1.12.18',
+        'jakarta.persistence-api' => '3.0.0',
+        'jakarta.transaction-api' => '2.0.0',
+    },
+};
+
 my @packages;
 
 my $file_content;
@@ -298,6 +328,14 @@ open(my $in, "<", $ivy_file)
 {
     local $/;
     $file_content = <$in>;
+}
+
+update_deps_file();
+
+# Pre-scan file to track top-level dependencies
+my %present_deps;
+while ($file_content =~ /<dependency\s+(?:[^>]*?\s+)?name="([^"]+)"/g) {
+    $present_deps{$1} = 1;
 }
 
 # get rid of sources configuration
@@ -333,18 +371,28 @@ $file_content =~ s{
     unless (defined $dep_org and defined $dep_name) {
         $replacement_str = $leading_whitespace . $dependency_block;
     }
-    elsif (exists $keep_if_exists->{$dep_name} && grep { $keep_if_exists->{$dep_name} eq $_ } @packages) {
-        warn BOLD YELLOW "Keep $dep_name" . RESET . "\n";
+    elsif (exists $keep_if_exists->{$dep_name} && grep {$keep_if_exists->{$dep_name} eq $_} @packages) {
+        print BOLD YELLOW "Keep $dep_name" . RESET . "\n";
         $replacement_str = $leading_whitespace . $dependency_block;
     }
-    elsif (grep { $dep_name =~ $_ } @remove_packages) {
-        warn BOLD CYAN "Remove $dep_name" . RESET . "\n";
+    elsif (should_remove_transitive($dep_name, $current_rev, \%present_deps)) {
+        print BOLD CYAN "Remove redundant transitive $dep_name (rev '$current_rev' is <= required override version)" . RESET . "\n";
     }
-    elsif (grep { $dep_name eq $_ } @packages) {
-        warn BOLD YELLOW "Remove duplicate dependency $dep_name" . RESET . "\n";
+    elsif (grep {$dep_name =~ $_} @remove_packages) {
+        print BOLD CYAN "Remove $dep_name" . RESET . "\n";
+    }
+    elsif ($audit_deps && $unused_deps_to_drop{$dep_name}) {
+        print BOLD CYAN "Remove unused dependency $dep_name (no active imports in src/)" . RESET . "\n";
+        # Format the comment to match current indentation
+        #        my $indent = $leading_whitespace;
+        #        $indent =~ s/.*\n//s; # Keep only the trailing spaces on the last line
+        #        $replacement_str = "\n" . $indent . "<!-- [AUDIT] Removed '$dep_name': No active Java imports found in src/ -->";
+    }
+    elsif (grep {$dep_name eq $_} @packages) {
+        print BOLD YELLOW "Remove duplicate dependency $dep_name" . RESET . "\n";
     }
     else {
-        push @packages, $dep_name;                # keep list of dependencies we have found
+        push @packages, $dep_name; # keep list of dependencies we have found
 
         my $modified_dependency_block = $dependency_block;
 
@@ -362,8 +410,8 @@ $file_content =~ s{
                 $new_v = version->parse($new_v_norm);
             };
             if ($@) {
-                warn BOLD RED "Could not parse version for $dep_org:$dep_name. Current='$current_v_norm', Proposed='$new_v_norm'" .
-                                RESET . "\n";
+                print BOLD RED "Could not parse version for $dep_org:$dep_name. Current='$current_v_norm', Proposed='$new_v_norm'" .
+                    RESET . "\n";
                 $should_keep_rev = 1;
             }
 
@@ -371,7 +419,7 @@ $file_content =~ s{
             my $is_package_name_changing = ($update_entry_ref->{org} ne $dep_org || $update_dep_name ne $dep_name);
             if (defined $current_rev && !$is_package_name_changing && !$should_keep_rev) {
                 if ($current_v gt $new_v) {
-                    warn BOLD YELLOW "Keep current rev for $dep_org:$dep_name: $current_rev" . RESET . "\n";
+                    print BOLD YELLOW "Keep current rev for $dep_org:$dep_name: $current_rev" . RESET . "\n";
                     $should_keep_rev = 1;
                 }
             }
@@ -383,30 +431,31 @@ $file_content =~ s{
 
                     if ($modified_dependency_block =~ s/\b$key="([^"]*)"/$key="$new_val"/i) {
                         # Attribute was updated
-                        warn BOLD GREEN "Update $dep_name:$key to $new_val" . RESET . "\n" unless $1 eq $new_val;
+                        print BOLD GREEN "Update $dep_name:$key to $new_val" . RESET . "\n" unless $1 eq $new_val;
                     }
                     else {
-                        warn BOLD YELLOW "$dep_org,$dep_name attempting to add missing $key attribute" . RESET . "\n";
+                        print BOLD YELLOW "$dep_org,$dep_name attempting to add missing $key attribute" . RESET . "\n";
                         if ($modified_dependency_block =~ s# /># $key="$new_val" />#) {
                             # Attribute was added
-                        } else {
-                            warn BOLD RED "unable to add $key attribute" . RESET ."\n";
+                        }
+                        else {
+                            print BOLD RED "unable to add $key attribute" . RESET . "\n";
                         }
                     }
                 }
             }
 
             if (exists $recommendations->{$dep_name}) {
-                warn BOLD MAGENTA $recommendations->{$dep_name} . RESET . "\n"
+                print BOLD MAGENTA $recommendations->{$dep_name} . RESET . "\n"
             }
         }
 
         my $dep_exclusions = $exclusions->{$dep_name} || $exclusions->{"$dep_org,$dep_name"};
         if (defined $dep_exclusions) {
             # remove existing exclusions
-            warn BOLD YELLOW "Removed old exclusions for $dep_name" . RESET . "\n"
-                if ($modified_dependency_block =~ s{\s*<exclude\s+(?:[^>]*?)\s*/>}{}gsi);              # Self-closing
-            warn BOLD YELLOW "Removed old exclusions for $dep_name" . RESET . "\n"
+            print BOLD YELLOW "Removed old exclusions for $dep_name" . RESET . "\n"
+                if ($modified_dependency_block =~ s{\s*<exclude\s+(?:[^>]*?)\s*/>}{}gsi); # Self-closing
+            print BOLD YELLOW "Removed old exclusions for $dep_name" . RESET . "\n"
                 if ($modified_dependency_block =~ s{\s*<exclude\s+(?:[^>]*?)>(?:.*?)</exclude>}{}gsi); # Opening/closing tags
 
             my $current_dep_tag_indent = '';
@@ -426,7 +475,7 @@ $file_content =~ s{
                     $modified_dependency_block =~ s{((?:\s*)</dependency>)$}{$new_exclusions$1}s;
                 }
                 else {
-                    warn BOLD RED "Warning: Could not find suitable place to insert exclusions for $dep_org,$dep_name" . RESET . "\n";
+                    print BOLD RED "Warning: Could not find suitable place to insert exclusions for $dep_org,$dep_name" . RESET . "\n";
                     $modified_dependency_block .= "\n" . $new_exclusions;
                 }
             }
@@ -525,7 +574,7 @@ for my $trigger_pkg_name (keys %$add_if_missing) {
                     $new_dep_xml = qq!\n$current_dep_tag_indent<dependency org="$org" name="$name" rev="$dep->{rev}" conf="$conf" />!;
                 }
 
-                warn BOLD MAGENTA "Add missing $trigger_pkg_name dependency $name" . RESET . "\n";
+                print BOLD MAGENTA "Add missing $trigger_pkg_name dependency $name" . RESET . "\n";
                 $xml_to_insert .= $new_dep_xml;
             }
         }
@@ -559,7 +608,7 @@ sub generate_exclusion_xml {
             $exclusions_xml .= qq!\n$base_indent<exclude!;
             for my $attribute (@keyOrder) {
                 if (defined $rule->{$attribute}) {
-                    warn BOLD BLUE "Adding exclusion: " . $attribute."=".$rule->{$attribute}.RESET."\n";
+                    print BOLD BLUE "Adding exclusion: " . $attribute . "=" . $rule->{$attribute} . RESET . "\n";
                     # Use quotemeta to escape attribute values in case they contain regex metacharacters
                     $exclusions_xml .= qq! $attribute="$rule->{$attribute}"!;
                 }
@@ -571,14 +620,14 @@ sub generate_exclusion_xml {
 }
 
 sub normalize_version {
-    my $ver_str= shift;
+    my $ver_str = shift;
 
     if ($ver_str) {
         $ver_str =~ s/([.-])([A-Za-z][\w+]*)/_\L$2/g;
         # remove syntactic sugar and hope for the best
         $ver_str =~ s/_\w+$//;
         # add missing 'v' at front of version string
-        $ver_str = "v".$ver_str unless $ver_str =~ m/^v/;
+        $ver_str = "v" . $ver_str unless $ver_str =~ m/^v/;
     }
 
     return $ver_str;
@@ -592,6 +641,313 @@ sub escape_whitespace {
     $str =~ s/ /_/g;
 
     $str;
+}
+
+sub should_remove_transitive {
+    my ($dep_name, $current_rev, $present_deps_ref) = @_;
+    return 0 unless defined $current_rev;
+
+    for my $parent_pkg (keys %$remove_redundant_transitives_versioned) {
+        # Only check if the parent dependency (e.g., hibernate-core) is present in the file
+        if (exists $present_deps_ref->{$parent_pkg}) {
+            my $targets = $remove_redundant_transitives_versioned->{$parent_pkg};
+
+            if (exists $targets->{$dep_name}) {
+                my $max_version_str = $targets->{$dep_name};
+
+                my ($curr_v, $max_v);
+                eval {
+                    $curr_v = version->parse(normalize_version($current_rev));
+                    $max_v = version->parse(normalize_version($max_version_str));
+                };
+
+                if ($@) {
+                    print BOLD RED "Version parse error comparing $dep_name ($current_rev vs $max_version_str)" . RESET . "\n";
+                    return 0; # On error, safely keep the dependency
+                }
+
+                # If current version is less than or equal to threshold, mark for removal
+                if ($curr_v <= $max_v) {
+                    return 1;
+                }
+                else {
+                    print BOLD GREEN "Keeping direct dependency $dep_name ($current_rev > $max_version_str) assumed Snyk override" . RESET . "\n";
+                    return 0;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+sub update_deps_file {
+    my $deps_file = '.deps';
+    my $ivy_file = 'ivy.xml';
+    my $ant_cmd = '/c/ant/bin/ant -f my-build.xml show-deps';
+
+    my $deps_mtime = (-e $deps_file) ? (stat($deps_file))->mtime : 0;
+    my $ivy_mtime = (-e $ivy_file) ? (stat($ivy_file))->mtime : 0;
+
+    if ($deps_mtime > 0 && $deps_mtime > $ivy_mtime) {
+        print "INFO: $deps_file is up to date relative to $ivy_file. Skipping ant execution.\n";
+        return;
+    }
+
+    print BOLD CYAN "INFO: Generating $deps_file from Ant show-deps target..." . RESET . "\n";
+
+    open(my $ant_fh, "$ant_cmd 2>&1 |") or die "Failed to execute Ant command: $!\n";
+
+    my @filtered_lines;
+
+    while (my $line = <$ant_fh>) {
+        if ($line =~ /\[ivy:dependencytree\]\s*(.*)$/) {
+            my $content = $1;
+
+            # Keep the root header
+            if ($content =~ /^Dependency tree/) {
+                push @filtered_lines, $content . "\n";
+                next;
+            }
+
+            # Match lines with branch connectors (+- or \-)
+            if ($content =~ /^(.*?)(?:[\+\\]\-)(.*)$/) {
+                my $leading_prefix = $1; # Everything BEFORE the '+-' or '\-'
+
+                # Direct dependencies have 0 leading characters before '+-' / '\-'
+                # 1st-Gen Transitives have 1 to 3 leading characters (e.g. '|  ', '   ', '\  ')
+                # 2nd-Gen+ Transitives have 4 or more leading characters (e.g. '|  |  ')
+
+                if (length($leading_prefix) <= 3) {
+                    # Retain raw line with its native Ivy indentation
+                    push @filtered_lines, $content . "\n";
+                }
+            }
+        }
+        elsif ($line =~ /Target "show-deps" does not exist/) {
+            print BOLD RED "update my-build.xml" . RESET . "\n";
+            return;
+        }
+    }
+    close($ant_fh);
+
+    open(my $deps_out, '>', $deps_file) or die "Could not write to $deps_file: $!\n";
+    print $deps_out @filtered_lines;
+    close($deps_out);
+
+    if (!(stat($deps_file))->size) {
+        print BOLD RED "FAILURE: could not generate " . $deps_file . RESET . "\n";
+    }
+    else {
+        print BOLD GREEN "SUCCESS: Updated $deps_file with direct and 1st-generation dependencies." . RESET . "\n";
+    }
+}
+
+sub get_declared_ivy_dependencies {
+    my ($ivy_file) = @_;
+    my %declared_deps;
+
+    return %declared_deps unless -f $ivy_file;
+
+    open(my $fh, '<', $ivy_file) or return %declared_deps;
+    while (my $line = <$fh>) {
+        if ($line =~ /<dependency\s+.*?name="([^"]+)"/) {
+            $declared_deps{$1} = 1;
+        }
+    }
+    close($fh);
+
+    return %declared_deps;
+}
+
+sub extract_all_referenced_packages {
+    my ($src_dirs_ref, $webapp_dir) = @_;
+    my %referenced_packages;
+
+    my @src_dirs = ref($src_dirs_ref) eq 'ARRAY' ? @{$src_dirs_ref} : ($src_dirs_ref);
+    @src_dirs = grep {-d $_} @src_dirs;
+
+    print BOLD CYAN "Scanning source directories (" . join(', ', @src_dirs) . ") and webapp..." . RESET . "\n";
+
+    my $register = sub {
+        my ($raw) = @_;
+        return unless defined $raw;
+        $raw =~ s#[\r\n\s]+##g;
+
+        # Strict check: MUST be a dot-separated Java FQCN/package with at least 2 dots
+        # e.g., 'com.ibm.db2' or 'org.hibernate.dialect.DB2Dialect'
+        return unless $raw =~ /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_\.]+/;
+
+        # Filter out common false-positive non-Java patterns
+        return if $raw =~ /^(http|https|ftp|mailto|www|com\.sun|org\.w3c\.dom)/i;
+        return if $raw =~ /\.(xsd|xml|html|jsp|properties|png|jpg|gif|css|js)$/i;
+
+        # 1. Register full raw reference
+        $referenced_packages{$raw} = 1;
+
+        # 2. Extract parent package if a capitalized ClassName is at the end
+        # e.g., 'com.ibm.db2.jcc.DB2Driver' -> 'com.ibm.db2.jcc'
+        my $pkg = $raw;
+        if ($pkg =~ s#\.[A-Z][a-zA-Z0-9_]*$##) {
+            $referenced_packages{$pkg} = 1;
+        }
+    };
+
+    # 1. Scan ALL provided source directories
+    if (@src_dirs) {
+        find({
+            wanted   => sub {
+                my $file = $File::Find::name;
+                return unless -f $file && $file =~ /\.(java|xml|properties|factories)$/i;
+                open(my $fh, '<', $file) or return;
+                while (my $line = <$fh>) {
+                    # Standard & Static Java Imports
+                    if ($line =~ /^\s*import\s+(?:static\s+)?([a-zA-Z0-9_\.\*]+)\s*;\s*$/) {
+                        my $imp = $1;
+                        if ($imp =~ /\*$/) {
+                            $imp =~ s#\.\*$##;
+                            $register->($imp);
+                        }
+                        else {
+                            $register->($imp);
+                        }
+                    }
+
+                    # 1. Reflection Calls: Class.forName("..."), loadClass("...")
+                    while ($line =~ /(?:Class\.forName|loadClass)\s*\(\s*"([a-zA-Z0-9_\.]+)"\s*\)/g) {
+                        $register->($1);
+                    }
+
+                    # 2. Specific Class/Driver XML attributes (EXCLUDING generic name="")
+                    while ($line =~ /(?:driverClassName|dialect|class|type|factory-method)="([a-zA-Z0-9_\.]+)"/g) {
+                        $register->($1);
+                    }
+
+                    # 3. Log4j <Logger name="org.hibernate..."> specifically
+                    while ($line =~ /<Logger\s+[^>]*?name="([a-zA-Z0-9_\.]+)"/g) {
+                        $register->($1);
+                    }
+
+                    # 4. Quoted FQCN Literals in Java code, XML values, or properties
+                    # Must contain at least TWO dots to avoid matching single package/bean names
+                    while ($line =~ /"([a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_\.]+)"/g) {
+                        $register->($1);
+                    }
+                }
+                close($fh);
+            },
+            no_chdir => 1
+        }, @src_dirs);
+    }
+
+    # 2. Scan webapp_dir ONLY for web/presentation assets
+    if (defined $webapp_dir && -d $webapp_dir) {
+        find({
+            wanted   => sub {
+                my $file = $File::Find::name;
+                return unless -f $file && $file =~ /\.(xml|jsp|jspf|tag|tld)$/i;
+                open(my $fh, '<', $file) or return;
+                while (my $line = <$fh>) {
+                    while ($line =~ /(?:class|type|value|driverClassName|dialect)="([a-zA-Z0-9_\.]+)"/g) {
+                        $register->($1);
+                    }
+                    if ($line =~ /%@\s*page\s+.*?import="([^"]+)"/) {
+                        for my $imp (split /\s*,\s*/, $1) {
+                            $imp =~ s#\.\*$##;
+                            $register->($imp);
+                        }
+                    }
+                }
+                close($fh);
+            },
+            no_chdir => 1
+        }, $webapp_dir);
+    }
+
+    print BOLD GREEN "Extracted " . (scalar keys %referenced_packages) . " unique package/class references." . RESET . "\n";
+    return %referenced_packages;
+}
+
+sub get_unused_direct_dependencies {
+    my ($src_dirs_ref, $lib_dir, $webapp_dir, $ivy_file) = @_;
+    $lib_dir ||= (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
+    $webapp_dir ||= "war";
+    $ivy_file ||= "ivy.xml";
+
+    # 1. Normalize source directories to an array and filter existing ones
+    my @src_dirs = ref($src_dirs_ref) eq 'ARRAY' ? @{$src_dirs_ref} : ($src_dirs_ref);
+    @src_dirs = grep {defined $_ && -d $_} @src_dirs;
+
+    my %unused_map;
+    print BOLD CYAN "--- AUDITING DIRECT DEPENDENCIES ---" . RESET . "\n";
+
+    # Ensure we have at least one valid source directory and a valid lib directory
+    unless (@src_dirs && -d $lib_dir) {
+        print BOLD RED "Error: No valid source or library directories found." . RESET . "\n";
+        return %unused_map;
+    }
+
+    # 2. Collect only the dependency names declared in ivy.xml
+    my %declared_deps = get_declared_ivy_dependencies($ivy_file);
+
+    # 3. Extract package references across all valid source directories & webapp
+    my %used_packages = extract_all_referenced_packages(\@src_dirs, $webapp_dir);
+    my @jars = glob("$lib_dir/*.jar");
+
+    for my $jar_file (@jars) {
+        my ($filename) = $jar_file =~ m{([^/]+)\.jar$};
+
+        # Derive dependency name from jar file name (e.g., spring-context-6.2.19 -> spring-context)
+        my $dep_name = $filename;
+        $dep_name =~ s/-\d+.*$//;
+
+        # OPTIMIZATION: Skip jar tf unless directly declared in ivy.xml
+        next unless exists $declared_deps{$dep_name};
+
+        my %jar_packages;
+        open(my $jar_fh, "jar tf \"$jar_file\" 2>&1 |") or next;
+        while (my $entry = <$jar_fh>) {
+            $entry =~ s#[\r\n]+##g;
+            next unless $entry =~ /\.class$/ && $entry !~ /^META-INF/;
+
+            my $fqcn = $entry;
+            $fqcn =~ s#\.class$##;
+            $fqcn =~ s#/#.#g;
+            $fqcn =~ s#\$.*$##; # Strip inner class designations ($1, etc.)
+
+            $jar_packages{$fqcn} = 1;
+
+            my $pkg = $fqcn;
+            if ($pkg =~ s#\.[A-Z][a-zA-Z0-9_]*$##) {
+                $jar_packages{$pkg} = 1;
+            }
+        }
+        close($jar_fh);
+
+        # Cross-reference JAR classes against all captured project packages
+        my $is_used = 0;
+        FOR_ITEM:
+        for my $jar_pkg (keys %jar_packages) {
+            if (exists $used_packages{$jar_pkg}) {
+                $is_used = 1;
+                last FOR_ITEM;
+            }
+            for my $ref_pkg (keys %used_packages) {
+                if ($ref_pkg eq $jar_pkg || $ref_pkg =~ /^\Q$jar_pkg\E\./ || $jar_pkg =~ /^\Q$ref_pkg\E\./) {
+                    $is_used = 1;
+                    last FOR_ITEM;
+                }
+            }
+        }
+
+        if (!$is_used) {
+            $unused_map{$dep_name} = 1;
+        }
+    }
+
+    my $count = scalar keys %unused_map;
+    print BOLD GREEN "SUCCESS: Audit complete. Found $count candidate direct dependencies to prune." . RESET . "\n";
+
+    return %unused_map;
 }
 
 __END__
