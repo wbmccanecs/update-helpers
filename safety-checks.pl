@@ -83,7 +83,7 @@ my $jsp_patterns = {
     "<form:form.*commandName=" => "commandName",
 };
 my $js_patterns = {
-    '^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => 'unsanitized $3',
+    '^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => 'not sanitized $3',
 };
 my $properties_patterns = {
     "content.ts.mgicint.net" => "static content",
@@ -111,6 +111,11 @@ my @required_files = (
     'build-standard.xml',
     'build.properties',
     '.gitignore',
+);
+
+my @unwanted = (
+    'test-automation',
+    '.gradle',
 );
 
 my $checks;
@@ -151,6 +156,12 @@ safety_check($start_directory, 'yml', $yaml_patterns) if $checks->{yml} || $chec
 safety_check($start_directory, 'sh', $sh_patterns) if $checks->{sh} || $checkAll;
 file_pattern_safety_checks($start_directory, $file_patterns) if $checks->{files} || $checks->{file_patterns} || $checkAll;
 misc_checks($start_directory) if $checks->{misc} || $checkAll;
+for my $m (@unwanted) {
+    if (-e $m) {
+        print BOLD RED "remove " . $m . RESET ."\n";
+    }
+}
+
 print BOLD GREEN "--- All Safety Checks Complete ---\n" . RESET;
 exit 0;
 
