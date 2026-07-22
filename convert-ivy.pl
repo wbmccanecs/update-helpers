@@ -61,6 +61,22 @@ my @remove_packages = (
     "spring-jdbc",
 );
 
+if ($no_ui) {
+    print BOLD CYAN "--- HEADLESS MODE ACTIVE: Pruning UI dependencies ---" . RESET . "\n";
+    push @remove_packages, (
+        "spring-webmvc",
+        "spring-websocket",
+        "sitemesh",
+        "jakarta.servlet.jsp-api",
+        "jakarta.servlet.jsp.jstl",
+        "jakarta.servlet.jsp.jstl-api",
+        "displaytag",
+        "encoder-jakarta-jsp",
+        "cas-client-core",
+        "nimbus-jose-jwt"
+    );
+}
+
 my $recommendations = {
     'esapi'        => 'convert Query to use bind parameters and remove esapi dependency',
     'apereo'       => 'convert to EmployeeFormBasedAuthForLDAP and remove apereo dependencies',
