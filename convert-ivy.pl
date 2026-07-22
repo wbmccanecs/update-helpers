@@ -20,6 +20,7 @@ for my $arg (@ARGV) {
 }
 
 my %unused_deps_to_drop;
+my %used_deps_to_keep;
 
 if ($audit_deps) {
     my $libdir = (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
@@ -27,9 +28,13 @@ if ($audit_deps) {
     push @src_dirs, "../mgic_business/src" if -e "$libdir/mgic-business.jar";
     push @src_dirs, "../mgic_common/src" if -e "$libdir/mgic-common.jar";
     push @src_dirs, "../mgic_entity/src" if -e "$libdir/mgic-entity-custom.jar" || -e "$libdir/mgic-entity-master.jar";
+    push @src_dirs, "../mgic_mux/src" if -e "$libdir/mgic-mux.jar";
     push @src_dirs, "../mgic_persistence/src" if -e "$libdir/mgic-persistence.jar";
 
-    %unused_deps_to_drop = get_unused_direct_dependencies(\@src_dirs, $libdir);
+    # Capture both maps from the updated subroutine
+    my ($unused_ref, $used_ref) = audit_dependencies(\@src_dirs, $libdir);
+    %unused_deps_to_drop = %$unused_ref;
+    %used_deps_to_keep = %$used_ref;
 }
 
 my @remove_packages = (
@@ -315,27 +320,6 @@ my $exclusions = {
     ],
 };
 
-my $remove_redundant_transitives_versioned = {
-    'angus-mail'             => {
-        'jakarta.mail-api'     => '2.2.0-M1',
-        'angus.activation-api' => '2.2.0-M1',
-    },
-    'hibernate-core'         => {
-        'byte-buddy'              => '1.17.5',
-        'jakarta.persistence-api' => '3.1.0',
-        'jakarta.transaction-api' => '2.0.1',
-        'jakarta.xml.bind-api'    => '4.0.2',
-        'jaxb-runtime'            => '4.0.5',
-        'antlr'                   => '4.13.0',
-    },
-    'hibernate-core-jakarta' => {
-        'antlr'                   => '2.7.7',
-        'byte-buddy'              => '1.12.18',
-        'jakarta.persistence-api' => '3.0.0',
-        'jakarta.transaction-api' => '2.0.0',
-    },
-};
-
 my @packages;
 
 my $file_content;
@@ -347,6 +331,9 @@ open(my $in, "<", $ivy_file)
 }
 
 update_deps_file();
+
+# Dynamically generate the transitive version map from the fresh .deps tree
+my $remove_redundant_transitives_versioned = $audit_deps ? generate_transitive_map_from_deps('.deps') : undef;
 
 # Pre-scan file to track top-level dependencies
 my %present_deps;
@@ -392,7 +379,14 @@ $file_content =~ s{
         $replacement_str = $leading_whitespace . $dependency_block;
     }
     elsif (should_remove_transitive($dep_name, $current_rev, \%present_deps)) {
-        print BOLD CYAN "Remove redundant transitive $dep_name (rev '$current_rev' is <= required override version)" . RESET . "\n";
+        # Check if the audit found direct usage for this otherwise redundant transitive
+        if ($audit_deps && $used_deps_to_keep{$dep_name}) {
+            warn BOLD YELLOW "Keep direct dependency $dep_name (Transitive, but direct usage detected in code)" . RESET . "\n";
+            $replacement_str = $leading_whitespace . $dependency_block;
+        }
+        else {
+            warn BOLD CYAN "Remove redundant transitive $dep_name (rev '$current_rev' is <= required override version)" . RESET . "\n";
+        }
     }
     elsif (grep {$dep_name =~ $_} @remove_packages) {
         print BOLD CYAN "Remove $dep_name" . RESET . "\n";
@@ -727,14 +721,9 @@ sub update_deps_file {
 
             # Match lines with branch connectors (+- or \-)
             if ($content =~ /^(.*?)(?:[\+\\]\-)(.*)$/) {
-                my $leading_prefix = $1; # Everything BEFORE the '+-' or '\-'
-
-                # Direct dependencies have 0 leading characters before '+-' / '\-'
-                # 1st-Gen Transitives have 1 to 3 leading characters (e.g. '|  ', '   ', '\  ')
-                # 2nd-Gen+ Transitives have 4 or more leading characters (e.g. '|  |  ')
-
-                if (length($leading_prefix) <= 3) {
-                    # Retain raw line with its native Ivy indentation
+                # Match lines with branch connectors (+- or \-)
+                if ($content =~ /^(.*?)(?:[\+\\]\-)(.*)$/) {
+                    # Keep the whole tree so we can map deep transitives
                     push @filtered_lines, $content . "\n";
                 }
             }
@@ -833,6 +822,11 @@ sub extract_all_referenced_packages {
                         $register->($1);
                     }
 
+                    # 1.5 Class Literals (e.g., com.ibm.db2.jcc.DB2Driver.class or .class.getName())
+                    while ($line =~ /([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)\.class\b/g) {
+                        $register->($1);
+                    }
+
                     # 2. Specific Class/Driver XML attributes (EXCLUDING generic name="")
                     while ($line =~ /(?:driverClassName|dialect|class|type|factory-method)="([a-zA-Z0-9_\.]+)"/g) {
                         $register->($1);
@@ -883,40 +877,33 @@ sub extract_all_referenced_packages {
     return %referenced_packages;
 }
 
-sub get_unused_direct_dependencies {
+sub audit_dependencies {
     my ($src_dirs_ref, $lib_dir, $webapp_dir, $ivy_file) = @_;
     $lib_dir ||= (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
     $webapp_dir ||= "war";
     $ivy_file ||= "ivy.xml";
 
-    # 1. Normalize source directories to an array and filter existing ones
     my @src_dirs = ref($src_dirs_ref) eq 'ARRAY' ? @{$src_dirs_ref} : ($src_dirs_ref);
     @src_dirs = grep {defined $_ && -d $_} @src_dirs;
 
     my %unused_map;
+    my %used_map; # NEW: Track dependencies that have direct code references
     print BOLD CYAN "--- AUDITING DIRECT DEPENDENCIES ---" . RESET . "\n";
 
-    # Ensure we have at least one valid source directory and a valid lib directory
     unless (@src_dirs && -d $lib_dir) {
         print BOLD RED "Error: No valid source or library directories found." . RESET . "\n";
-        return %unused_map;
+        return (\%unused_map, \%used_map);
     }
 
-    # 2. Collect only the dependency names declared in ivy.xml
     my %declared_deps = get_declared_ivy_dependencies($ivy_file);
-
-    # 3. Extract package references across all valid source directories & webapp
     my %used_packages = extract_all_referenced_packages(\@src_dirs, $webapp_dir);
     my @jars = glob("$lib_dir/*.jar");
 
     for my $jar_file (@jars) {
         my ($filename) = $jar_file =~ m{([^/]+)\.jar$};
-
-        # Derive dependency name from jar file name (e.g., spring-context-6.2.19 -> spring-context)
         my $dep_name = $filename;
         $dep_name =~ s/-\d+.*$//;
 
-        # OPTIMIZATION: Skip jar tf unless directly declared in ivy.xml
         next unless exists $declared_deps{$dep_name};
 
         my %jar_packages;
@@ -928,7 +915,7 @@ sub get_unused_direct_dependencies {
             my $fqcn = $entry;
             $fqcn =~ s#\.class$##;
             $fqcn =~ s#/#.#g;
-            $fqcn =~ s#\$.*$##; # Strip inner class designations ($1, etc.)
+            $fqcn =~ s#\$.*$##;
 
             $jar_packages{$fqcn} = 1;
 
@@ -939,7 +926,6 @@ sub get_unused_direct_dependencies {
         }
         close($jar_fh);
 
-        # Cross-reference JAR classes against all captured project packages
         my $is_used = 0;
         FOR_ITEM:
         for my $jar_pkg (keys %jar_packages) {
@@ -955,15 +941,69 @@ sub get_unused_direct_dependencies {
             }
         }
 
-        if (!$is_used) {
+        # Route the dependency to the correct map based on usage
+        if ($is_used) {
+            $used_map{$dep_name} = 1;
+        }
+        else {
             $unused_map{$dep_name} = 1;
         }
     }
 
-    my $count = scalar keys %unused_map;
-    print BOLD GREEN "SUCCESS: Audit complete. Found $count candidate direct dependencies to prune." . RESET . "\n";
+    my $unused_count = scalar keys %unused_map;
+    my $used_count = scalar keys %used_map;
+    print BOLD GREEN "SUCCESS: Audit complete. Found $unused_count unused to drop, $used_count directly used to protect." . RESET . "\n";
 
-    return %unused_map;
+    return (\%unused_map, \%used_map);
+}
+
+sub generate_transitive_map_from_deps {
+    my ($deps_file) = @_;
+    my %dynamic_transitives;
+
+    return \%dynamic_transitives unless -e $deps_file;
+
+    open(my $fh, '<', $deps_file) or return \%dynamic_transitives;
+
+    my @stack; # Tracks the current dependency at each tree depth
+
+    while (my $line = <$fh>) {
+        chomp $line;
+
+        # Match the visual tree: (prefix)(connector)(org#name;version)
+        if ($line =~ /^(.*?)(?:[\+\\]\-)\s*(.*?)$/) {
+            my $prefix = $1;
+            my $payload = $2;
+
+            # Every 3 characters of prefix (like "|  " or "   ") equals 1 level of depth
+            my $depth = length($prefix) / 3;
+
+            # Parse Ivy's default format: org#name;version
+            # Safely handles trailing eviction notices like "1.0 (evicted by 2.0)"
+            if ($payload =~ /([^#]+)#([^;]+);([^\s]+)/) {
+                my $name = $2;
+                my $rev = $3;
+
+                # Update the stack at the current depth
+                $stack[$depth] = $name;
+
+                # If we are deeper than the root, map this transitive to the top-level parent
+                if ($depth > 0 && defined $stack[0]) {
+                    my $root_parent = $stack[0];
+
+                    # If it appears multiple times, keep the highest version
+                    if (!exists $dynamic_transitives{$root_parent}{$name} ||
+                        version->parse(normalize_version($rev)) > version->parse(normalize_version($dynamic_transitives{$root_parent}{$name}))) {
+
+                        $dynamic_transitives{$root_parent}{$name} = $rev;
+                    }
+                }
+            }
+        }
+    }
+    close($fh);
+
+    return \%dynamic_transitives;
 }
 
 __END__
