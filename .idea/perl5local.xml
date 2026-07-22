@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Perl5LocalSettings">
+    <option name="externalLibrariesPaths">
+      <list>
+        <option value="C:/Program Files/Git/usr/share/perl5/core_perl" />
+        <option value="C:/Program Files/Git/usr/share/perl5/vendor_perl" />
+      </list>
+    </option>
+    <option name="perlInterpreter" value="Local, System: Perl 5.32.1" />
+  </component>
+</project>
