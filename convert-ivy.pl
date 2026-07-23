@@ -281,9 +281,6 @@ my $add_if_missing = {
     "ehcache"                  => [
         "jaxb-runtime",
     ],
-    "angus-mail"               => [
-        "log4j-jakarta-smtp",
-    ],
 };
 
 my $keep_if_exists = {
@@ -293,31 +290,31 @@ my $keep_if_exists = {
 };
 
 my $exclusions = {
-    "cas-client-core"               => [
+    "cas-client-core" => [
         { org => "org.bouncycastle", name => "bcprov-jdk15on" },
-        { org => "com.nimbusds" },
+        #         { org => "com.nimbusds" },
     ],
-    "mockito-core"                  => [
-        { org => "net.bytebuddy" },
-    ],
-    "poi"                           => [
-        { module => "log4j-api" },
-    ],
-    "poi-ooxml"                     => [
-        { module => "log4j-api" },
-    ],
-    "tika-core"                     => [
-        { org => "org.slf4j" },
-    ],
-    "tika-parsers-standard-package" => [
-        { org => "org.gagravarr" },
-        { org => "org.slf4j" },
-        { org => "com.github.junrar" },
-    ],
-    "tika-parser-sqlite3-package"   => [],
-    "ignite-indexing"               => [
-        { org => "com.h2database", }
-    ],
+    #     "mockito-core"                  => [
+    #         { org => "net.bytebuddy" },
+    #     ],
+    #     "poi"                           => [
+    #         { module => "log4j-api" },
+    #     ],
+    #     "poi-ooxml"                     => [
+    #         { module => "log4j-api" },
+    #     ],
+    #     "tika-core"                     => [
+    #         { org => "org.slf4j" },
+    #     ],
+    #     "tika-parsers-standard-package" => [
+    #         { org => "org.gagravarr" },
+    #         { org => "org.slf4j" },
+    #         { org => "com.github.junrar" },
+    #     ],
+    #     "tika-parser-sqlite3-package"   => [],
+    #     "ignite-indexing"               => [
+    #         { org => "com.h2database", }
+    #     ],
 };
 
 my @packages;
@@ -335,15 +332,27 @@ update_deps_file();
 # Dynamically generate the transitive version map from the fresh .deps tree
 my $remove_redundant_transitives_versioned = $audit_deps ? generate_transitive_map_from_deps('.deps') : undef;
 
-# Pre-scan file to track top-level dependencies
+my %global_excludes = extract_global_exclusions($file_content);
+
+# Pre-scan ivy.xml to track all currently present direct dependencies
 my %present_deps;
 while ($file_content =~ /<dependency\s+(?:[^>]*?\s+)?name="([^"]+)"/g) {
     $present_deps{$1} = 1;
 }
 
-# get rid of sources configuration
-$file_content =~ s#;sources->sources##g;
+# Compute the exact set of direct dependencies that will SURVIVE this run
+my %surviving_deps;
+for my $dep (keys %present_deps) {
+    next if $audit_deps && $unused_deps_to_drop{$dep};
+    next if grep {$dep =~ $_} @remove_packages;
 
+    $surviving_deps{$dep} = 1;
+}
+
+# Generate dynamic exclusions ONLY for surviving deps that aren't globally excluded
+generate_dynamic_exclusions_from_deps('.deps', \%surviving_deps, $exclusions, \%global_excludes);
+
+# Process and rewrite ivy.xml content
 $file_content =~ s{
     ^ (\s*)(?!<--)
     (<dependency\s+
@@ -501,106 +510,7 @@ if ($file_content =~ m!^(\s*)</dependencies>!ms) {
     $dependencies_close_tag_indent = $1;
 }
 
-my @insertions_to_apply = ();
-for my $trigger_pkg_name (keys %$add_if_missing) {
-    my $trigger_dep_block_regex = qr{
-        (
-            \s+
-            <dependency\s+
-            (?:[^>]|"[^"]*")*?
-            name="$trigger_pkg_name"
-            (?:[^>]|"[^"]*")*?
-            (?:
-                \s*/>
-                |
-                >
-                (?:
-                    (?!</dependency>)
-                    (?!<dependency\s+)
-                    .
-                )*?
-                </dependency>
-            )
-        )
-    }xms;
-
-    if ($file_content =~ m/(.*?)($trigger_dep_block_regex)/s) {
-        my $match_end_offset = length($1) + length($2);
-        my $matched_trigger_block = $2;
-
-        my $trigger_base_indent = '';
-        if ($matched_trigger_block =~ s{^(\s*)}{ $trigger_base_indent = $1;
-            ''}se) {
-            my @lines = split(/\r?\n/, $trigger_base_indent);
-            if (@lines > 0) {
-                if ($lines[-1] =~ /^(\s*)/) {
-                    $trigger_base_indent = $1;
-                }
-            }
-        }
-
-        my $trigger_deps = $add_if_missing->{$trigger_pkg_name};
-        my $xml_to_insert = '';
-
-        for my $pkg (@$trigger_deps) {
-            my $dep = $update->{$pkg};
-
-            my $org = $dep->{org};
-            my $name = $dep->{name} || $pkg;
-
-            my $exists_regex = qr{
-                \s*
-                <dependency\s+
-                (?:[^>]|"[^"]*")*?
-                org="$org"
-                (?:[^>]|"[^"]*")*?
-                name="$name"
-                (?:[^>]|"[^"]*")*?
-                (?:
-                    \s*/>
-                    |
-                    >
-                    (?:
-                        (?!</dependency>)
-                        (?!<dependency>)
-                        .
-                    )*?
-                    </dependency>
-                )
-            }xms;
-
-            if ($file_content !~ $exists_regex) {
-                my $current_dep_tag_indent = $trigger_base_indent;
-                my $dep_exclusions = $exclusions->{$name} || $exclusions->{"$org,$name"};
-
-                my $exclusions_xml = generate_exclusion_xml($dep_exclusions, $current_dep_tag_indent . '    ');
-
-                my $new_dep_xml;
-                my $conf = $dep->{conf} || 'runtime->default';
-                if (length $exclusions_xml > 0) {
-                    $new_dep_xml = qq!\n$current_dep_tag_indent<dependency org="$org" name="$name" rev="$dep->{rev}" conf="$conf">$exclusions_xml$current_dep_tag_indent</dependency>!;
-                }
-                else {
-                    $new_dep_xml = qq!\n$current_dep_tag_indent<dependency org="$org" name="$name" rev="$dep->{rev}" conf="$conf" />!;
-                }
-
-                print BOLD MAGENTA "Add missing $trigger_pkg_name dependency $name" . RESET . "\n";
-                $xml_to_insert .= $new_dep_xml;
-            }
-        }
-
-        if (length $xml_to_insert > 0) {
-            push @insertions_to_apply, { pos => $match_end_offset, text => $xml_to_insert };
-        }
-    }
-}
-
-# have to apply in reverse order to preserve positional integrity
-@insertions_to_apply = sort {$b->{pos} <=> $a->{pos}} @insertions_to_apply;
-
-foreach my $insertion (@insertions_to_apply) {
-    substr($file_content, $insertion->{pos}, 0) = $insertion->{text};
-}
+insert_missing_dependencies(\$file_content, $add_if_missing, $update, $exclusions);
 
 open(my $out, ">", $output_file)
     or die "Error: could not open '$output_file': $!";
@@ -1004,6 +914,343 @@ sub generate_transitive_map_from_deps {
     close($fh);
 
     return \%dynamic_transitives;
+}
+
+sub generate_dynamic_exclusions_from_deps {
+    my ($deps_file, $surviving_deps_ref, $exclusions_ref, $global_excludes_ref) = @_;
+
+    return unless -e $deps_file;
+
+    open(my $fh, '<', $deps_file) or return;
+
+    my @stack;
+
+    while (my $line = <$fh>) {
+        chomp $line;
+
+        if ($line =~ /^(.*?)(?:[\+\\]\-)\s*(.*?)$/) {
+            my $prefix = $1;
+            my $payload = $2;
+
+            my $depth = length($prefix) / 3;
+
+            if ($payload =~ /([^#]+)#([^;]+);([^\s]+)/) {
+                my $org = $1;
+                my $name = $2;
+
+                $stack[$depth] = $name;
+
+                if ($depth > 0 && defined $stack[0]) {
+                    my $root_parent = $stack[0];
+
+                    # 1. Skip if the module is ALREADY globally excluded
+                    next if exists $global_excludes_ref->{$name};
+                    next if exists $global_excludes_ref->{"org:$org"};
+
+                    # 2. Only exclude if it survives as an explicit direct dependency
+                    if (exists $surviving_deps_ref->{$name} && $name ne $root_parent) {
+
+                        $exclusions_ref->{$root_parent} ||= [];
+
+                        my $already_excluded = 0;
+                        for my $rule (@{$exclusions_ref->{$root_parent}}) {
+                            if ((defined $rule->{module} && $rule->{module} eq $name) ||
+                                (defined $rule->{name} && $rule->{name} eq $name)) {
+                                $already_excluded = 1;
+                                last;
+                            }
+                        }
+
+                        if (!$already_excluded) {
+                            push @{$exclusions_ref->{$root_parent}}, { module => $name };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    close($fh);
+}
+
+sub extract_global_exclusions {
+    my ($xml_content) = @_;
+    my %global_excludes;
+
+    # Match standalone <exclude org="..." module="..." /> tags outside of <dependency> blocks
+    # or simple global tags like <exclude module="foo"/> / <exclude org="bar"/>
+    while ($xml_content =~ /<exclude\s+([^>]+)\/>/g) {
+        my $attrs = $1;
+        my $org = $1 if $attrs =~ /\borg="([^"]+)"/;
+        my $module = $1 if $attrs =~ /\bmodule="([^"]+)"/;
+        my $name = $1 if $attrs =~ /\bname="([^"]+)"/; # Some ivy configs use name instead of module
+
+        my $target = $module || $name;
+
+        if (defined $target) {
+            $global_excludes{$target} = 1;
+        }
+        if (defined $org && !defined $target) {
+            # Globally excluded by organization
+            $global_excludes{"org:$org"} = 1;
+        }
+    }
+
+    return %global_excludes;
+}
+
+sub promote_transitive_updates_to_add_if_missing {
+    my ($deps_file, $updates_ref, $inject_deps_ref, $file_content_ref) = @_;
+
+    return unless -e $deps_file;
+
+    open(my $fh, '<', $deps_file) or return;
+
+    my $promoted_count = 0;
+
+    while (my $line = <$fh>) {
+        chomp $line;
+
+        # Clean Ivy tree symbols (| \- +- spaces)
+        $line =~ s/^[\s|\\+\-]+//;
+
+        # Match clean org#module;version
+        if ($line =~ /^([^#]+)#([^;]+);/) {
+            my $org = $1;
+            my $dep_name = $2;
+
+            # Check if this transitive module exists in $update
+            if (exists $updates_ref->{$dep_name}) {
+                my $target = $updates_ref->{$dep_name};
+                my $new_name = $target->{name} || $dep_name;
+
+                # Only act if $new_name is not ALREADY explicitly declared in ivy.xml
+                if ($$file_content_ref !~ /name="\Q$new_name\E"/) {
+
+                    unless (exists $inject_deps_ref->{$new_name}) {
+                        $inject_deps_ref->{$new_name} = {
+                            org  => $target->{org} || $org,
+                            rev  => $target->{rev},
+                            conf => $target->{conf} || 'runtime->default',
+                        };
+
+                        $promoted_count++;
+                        warn BOLD GREEN "[INFO] Detected transitive '$dep_name' in .deps -> Promoting '$new_name' to direct dependency" . RESET . "\n";
+                    }
+                }
+            }
+        }
+    }
+    close($fh);
+
+    return $promoted_count;
+}
+
+sub process_parent_triggered_additions {
+    my ($file_content_ref, $add_if_missing_ref, $update_ref, $exclusions_ref) = @_;
+
+    my @insertions_to_apply = ();
+
+    for my $trigger_pkg_name (keys %$add_if_missing_ref) {
+        my $trigger_dep_block_regex = qr{
+            (
+                \s+
+                <dependency\s+
+                (?:[^>]|"[^"]*")*?
+                name="$trigger_pkg_name"
+                (?:[^>]|"[^"]*")*?
+                (?:
+                    \s*/>
+                    |
+                    >
+                    (?:
+                        (?!</dependency>)
+                        (?!<dependency\s+)
+                        .
+                    )*?
+                    </dependency>
+                )
+            )
+        }xms;
+
+        if ($$file_content_ref =~ m/(.*?)($trigger_dep_block_regex)/s) {
+            my $match_end_offset = length($1) + length($2);
+            my $matched_trigger_block = $2;
+
+            my $trigger_base_indent = '';
+            if ($matched_trigger_block =~ s{^(\s*)}{ $trigger_base_indent = $1;
+                '' }se) {
+                my @lines = split(/\r?\n/, $trigger_base_indent);
+                if (@lines > 0 && $lines[-1] =~ /^(\s*)/) {
+                    $trigger_base_indent = $1;
+                }
+            }
+
+            my $trigger_deps = $add_if_missing_ref->{$trigger_pkg_name};
+            my $xml_to_insert = '';
+
+            for my $pkg (@$trigger_deps) {
+                my $dep = $update_ref->{$pkg};
+                next unless defined $dep;
+
+                my $org = $dep->{org};
+                my $name = $dep->{name} || $pkg;
+
+                my $exists_regex = qr{
+                    \s*
+                    <dependency\s+
+                    (?:[^>]|"[^"]*")*?
+                    org="$org"
+                    (?:[^>]|"[^"]*")*?
+                    name="$name"
+                    (?:[^>]|"[^"]*")*?
+                    (?:
+                        \s*/>
+                        |
+                        >
+                        (?:
+                            (?!</dependency>)
+                            (?!<dependency>)
+                            .
+                        )*?
+                        </dependency>
+                    )
+                }xms;
+
+                if ($$file_content_ref !~ $exists_regex) {
+                    my $current_dep_tag_indent = $trigger_base_indent;
+                    my $dep_exclusions = $exclusions_ref->{$name} || $exclusions_ref->{"$org,$name"};
+
+                    my $exclusions_xml = generate_exclusion_xml($dep_exclusions, $current_dep_tag_indent . '    ');
+
+                    my $new_dep_xml;
+                    my $conf = $dep->{conf} || 'runtime->default';
+                    if (length $exclusions_xml > 0) {
+                        $new_dep_xml = qq!\n$current_dep_tag_indent<dependency org="$org" name="$name" rev="$dep->{rev}" conf="$conf">$exclusions_xml$current_dep_tag_indent</dependency>!;
+                    }
+                    else {
+                        $new_dep_xml = qq!\n$current_dep_tag_indent<dependency org="$org" name="$name" rev="$dep->{rev}" conf="$conf" />!;
+                    }
+
+                    print BOLD MAGENTA "Add missing $trigger_pkg_name dependency $name" . RESET . "\n";
+                    $xml_to_insert .= $new_dep_xml;
+                }
+            }
+
+            if (length $xml_to_insert > 0) {
+                push @insertions_to_apply, { pos => $match_end_offset, text => $xml_to_insert };
+            }
+        }
+    }
+
+    # Apply in reverse order to preserve string positional offsets
+    @insertions_to_apply = sort {$b->{pos} <=> $a->{pos}} @insertions_to_apply;
+
+    foreach my $insertion (@insertions_to_apply) {
+        substr($$file_content_ref, $insertion->{pos}, 0) = $insertion->{text};
+    }
+}
+
+sub insert_missing_dependencies {
+    my ($file_content_ref, $add_if_missing_ref, $update_ref, $exclusions_ref) = @_;
+
+    # ----------------------------------------------------------------------
+    # 1. Promote & Inject Transitive Upgrades (Bouncy Castle)
+    # ----------------------------------------------------------------------
+    my $transitive_promotions = {
+        'bcprov-jdk15on' => { name => 'bcprov-jdk18on', rev => '1.80', org => 'org.bouncycastle' },
+        'bcpkix-jdk15on' => { name => 'bcpkix-jdk18on', rev => '1.80', org => 'org.bouncycastle' },
+        'bcutil-jdk15on' => { name => 'bcutil-jdk18on', rev => '1.80', org => 'org.bouncycastle' },
+    };
+
+    my %inject_direct_deps;
+    promote_transitive_updates_to_add_if_missing('.deps', $transitive_promotions, \%inject_direct_deps, $file_content_ref);
+
+    # Guard Clause: If NO legacy jdk15on transitives were found in .deps, do NOTHING!
+    unless (keys %inject_direct_deps) {
+        return;
+    }
+
+    # Avoid unnecessary sub-module bloat if core provider exists
+    if (exists $inject_direct_deps{'bcpkix-jdk18on'} && exists $inject_direct_deps{'bcprov-jdk18on'}) {
+        delete $inject_direct_deps{'bcpkix-jdk18on'};
+        delete $inject_direct_deps{'bcutil-jdk18on'};
+    }
+
+    # Build injected direct dependency tags
+    my $deps_to_inject_xml = "";
+    for my $dep_name (sort keys %inject_direct_deps) {
+        my $info = $inject_direct_deps{$dep_name};
+        my $org = $info->{org};
+        my $rev = $info->{rev};
+        my $conf = $info->{conf} || 'runtime->default';
+
+        if ($$file_content_ref !~ /name="\Q$dep_name\E"/) {
+            $deps_to_inject_xml .= "    <dependency org=\"$org\" name=\"$dep_name\" rev=\"$rev\" conf=\"$conf\" />\n";
+            warn BOLD GREEN "[INJECTED] Added direct dependency for $dep_name ($rev)" . RESET . "\n";
+        }
+    }
+
+    # ----------------------------------------------------------------------
+    # Safe Structural Injection: Place after the LAST <dependency> tag
+    # ----------------------------------------------------------------------
+    my $indentation = '    '; # Default fallback
+    if (length $deps_to_inject_xml > 0) {
+        my $last_pos = -1;
+
+        while ($$file_content_ref =~ m{
+            ^(\s*)                       # $1: Indentation
+            <dependency\s+
+            (?:[^>]|"[^"]*")*?
+            (?:
+                />                       # Form 1: Self-closing <dependency ... />
+                |
+                >                        # Form 2: Multi-line container <dependency>...</dependency>
+                (?:
+                    (?!</dependency>)
+                    (?!<dependency\s+)
+                    .
+                )*?
+                </dependency>
+            )
+        }gsmx) {
+            $last_pos = $+[0];
+            if (defined $1) {
+                $indentation = $1;
+                $indentation =~ s/[\r\n]+//g; # Clean out any linefeed / carriage returns
+            }
+        }
+
+        if ($last_pos != -1) {
+            my $formatted_deps_xml = "";
+            for my $line (split /\r?\n/, $deps_to_inject_xml) {
+                next unless $line =~ /\S/;
+                $line =~ s/^\s*//;
+                $formatted_deps_xml .= "\n" . $indentation . $line;
+            }
+
+            substr($$file_content_ref, $last_pos, 0) = "\n" . $formatted_deps_xml;
+            warn BOLD GREEN "[INJECTED] Appended direct dependencies after the last existing dependency block." . RESET . "\n";
+        }
+        else {
+            $$file_content_ref =~ s{(<dependencies[^>]*>)}{$1\n$deps_to_inject_xml};
+        }
+    }
+
+    # ----------------------------------------------------------------------
+    # 2. Process Parent-Triggered Additions
+    # ----------------------------------------------------------------------
+    process_parent_triggered_additions($file_content_ref, $add_if_missing_ref, $update_ref, $exclusions_ref);
+
+    # ----------------------------------------------------------------------
+    # Inject Standalone Exclusions
+    # ----------------------------------------------------------------------
+    if ($$file_content_ref !~ /<exclude\s+[^>]*org="org\.bouncycastle"[^>]*module="\*-jdk15on"/) {
+        my $exclude_indent = $indentation || '    ';
+        my $exclude_xml = "${exclude_indent}<exclude org=\"org.bouncycastle\" module=\"*-jdk15on\" />";
+
+        $$file_content_ref =~ s{(\s*</dependencies>)}{\n$exclude_xml$1};
+        warn BOLD MAGENTA "[GLOBAL EXCLUDE] Added exclusion for org.bouncycastle#*-jdk15on" . RESET . "\n";
+    }
 }
 
 __END__
