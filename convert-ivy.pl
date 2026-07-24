@@ -24,50 +24,61 @@ my %used_deps_to_keep;
 
 if ($audit_deps) {
     my $libdir = (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
-    my @src_dirs = ('src', 'test');
-    push @src_dirs, "../mgic_business/src" if -e "$libdir/mgic-business.jar";
-    push @src_dirs, "../mgic_common/src" if -e "$libdir/mgic-common.jar";
-    push @src_dirs, "../mgic_entity/src" if -e "$libdir/mgic-entity-custom.jar" || -e "$libdir/mgic-entity-master.jar";
-    push @src_dirs, "../mgic_mux/src" if -e "$libdir/mgic-mux.jar";
-    push @src_dirs, "../mgic_persistence/src" if -e "$libdir/mgic-persistence.jar";
+    log_file_check($libdir);
 
-    # Capture both maps from the updated subroutine
+    my @src_dirs = ('src', 'test');
+    if (-e "$libdir/mgic-business.jar") {
+        log_file_check("$libdir/mgic-business.jar");
+        push @src_dirs, "../mgic_business/src";
+    }
+    if (-e "$libdir/mgic-common.jar") {
+        log_file_check("$libdir/mgic-common.jar");
+        push @src_dirs, "../mgic_common/src";
+    }
+    if (-e "$libdir/mgic-entity-custom.jar" || -e "$libdir/mgic-entity-master.jar") {
+        log_file_check("$libdir/mgic-entity-custom.jar") if -e "$libdir/mgic-entity-custom.jar";
+        log_file_check("$libdir/mgic-entity-master.jar") if -e "$libdir/mgic-entity-master.jar";
+        log_error("Both mgic-entity-custom.jar and mgic-entity-master.jar exist. Please remove one of them.")
+            if -e "$libdir/mgic-entity-custom.jar" && -e "$libdir/mgic-entity-master.jar";
+        push @src_dirs, "../mgic_entity/src"
+    }
+    if (-e "$libdir/mgic-mux.jar") {
+        log_file_check("$libdir/mgic-mux.jar");
+        push @src_dirs, "../mgic_mux/src";
+    }
+    if (-e "$libdir/mgic-persistence.jar") {
+        log_file_check("$libdir/mgic-persistence.jar");
+        push @src_dirs, "../mgic_persistence/src";
+    }
+
     my ($unused_ref, $used_ref) = audit_dependencies(\@src_dirs, $libdir);
     %unused_deps_to_drop = %$unused_ref;
-    %used_deps_to_keep = %$used_ref;
+    %used_deps_to_keep = %{filter_dependencies($used_ref, \%used_deps_to_keep)};
 }
 
 my @remove_packages = (
     "commons-httpclient",
     "commons-logging",
     "commons-pool",
-    "spring-asm",
-    "spring-orm",
-    "spring-data-commons",
-    "hibernate-entitymanager",
-    "hibernate-jpa-2.1-api",
-    "httpmime",
+    # "httpmime",
     'jandex',
-    "jaxb-core",
-    "jaxb-impl",
+    # "jaxb-core",
+    # "jaxb-impl",
     "log4jdbc",
     "^powermock-",
     "easymock",
-    "springfox-swagger2",
     "httpcore",
-    "aopalliance",
-    'jackson-.*-asl',
-    'xml-api',
+    # "aopalliance",
+    # 'jackson-.*-asl',
+    # 'xml-api',
     'taglibs-standard-impl',
-    "javax.jms-api",
-    "jakarta.jms-api",
-    "hibernate-annotations",
+    # "javax.jms-api",
+    # "jakarta.jms-api",
     "javax.activation",
-    "spring-jdbc",
 );
 
 if ($no_ui) {
-    print BOLD CYAN "--- HEADLESS MODE ACTIVE: Pruning UI dependencies ---" . RESET . "\n";
+    log_info("--- HEADLESS MODE ACTIVE: Pruning UI dependencies ---");
     push @remove_packages, (
         "spring-webmvc",
         "spring-websocket",
@@ -256,32 +267,7 @@ $update->{"jta"} = $update->{"jakarta.transaction-api"};
 $update->{"jaxws-api"} = $update->{"jakarta.xml.ws-api"};
 $update->{"jaxb-api"} = $update->{"jakarta.xml.bind-api"};
 
-my $add_if_missing = {
-    "javax.servlet.jsp"        => [
-        "jakarta.servlet.jsp-api",
-    ],
-    "jakarta.servlet.jsp-api"  => [
-        "jakarta.servlet.jsp.jstl",
-    ],
-    "jstl"                     => [
-        "jakarta.servlet.jsp.jstl-api",
-    ],
-    "jakarta.servlet.jsp.jstl" => [
-        "jakarta.servlet.jsp.jstl-api",
-    ],
-    "cas-client-core"          => [
-        "nimbus-jose-jwt",
-    ],
-    "mockito-all"              => [
-        "byte-buddy-agent",
-    ],
-    "mockito-core"             => [
-        "byte-buddy-agent",
-    ],
-    "ehcache"                  => [
-        "jaxb-runtime",
-    ],
-};
+my $add_if_missing = {};
 
 my $keep_if_exists = {
     "commons-lang" => "commons-lang3",
@@ -289,33 +275,7 @@ my $keep_if_exists = {
     "httpcore"     => "httpclient5",
 };
 
-my $exclusions = {
-    "cas-client-core" => [
-        { org => "org.bouncycastle", name => "bcprov-jdk15on" },
-        #         { org => "com.nimbusds" },
-    ],
-    #     "mockito-core"                  => [
-    #         { org => "net.bytebuddy" },
-    #     ],
-    #     "poi"                           => [
-    #         { module => "log4j-api" },
-    #     ],
-    #     "poi-ooxml"                     => [
-    #         { module => "log4j-api" },
-    #     ],
-    #     "tika-core"                     => [
-    #         { org => "org.slf4j" },
-    #     ],
-    #     "tika-parsers-standard-package" => [
-    #         { org => "org.gagravarr" },
-    #         { org => "org.slf4j" },
-    #         { org => "com.github.junrar" },
-    #     ],
-    #     "tika-parser-sqlite3-package"   => [],
-    #     "ignite-indexing"               => [
-    #         { org => "com.h2database", }
-    #     ],
-};
+my $exclusions = {};
 
 my @packages;
 
@@ -330,7 +290,7 @@ open(my $in, "<", $ivy_file)
 update_deps_file();
 
 # Dynamically generate the transitive version map from the fresh .deps tree
-my $remove_redundant_transitives_versioned = $audit_deps ? generate_transitive_map_from_deps('.deps') : undef;
+my $remove_redundant_transitives_versioned = generate_transitive_map_from_deps('.deps');
 
 my %global_excludes = extract_global_exclusions($file_content);
 
@@ -340,17 +300,28 @@ while ($file_content =~ /<dependency\s+(?:[^>]*?\s+)?name="([^"]+)"/g) {
     $present_deps{$1} = 1;
 }
 
-# Compute the exact set of direct dependencies that will SURVIVE this run
+# Compute exact set of direct dependencies that will SURVIVE this run
 my %surviving_deps;
 for my $dep (keys %present_deps) {
+    # Skip if flagged for removal by audit or package filters
     next if $audit_deps && $unused_deps_to_drop{$dep};
     next if grep {$dep =~ $_} @remove_packages;
 
+    # Mark as surviving candidate for initial pass
     $surviving_deps{$dep} = 1;
 }
 
+# Second Pass: Prune dependencies whose parents actually survived
+for my $dep (keys %surviving_deps) {
+    my ($current_rev) = $file_content =~ /<dependency\s+[^>]*name="\Q$dep\E"[^>]*rev="([^"]+)"/;
+
+    if (should_remove_transitive($dep, $current_rev, \%present_deps, $update, \%used_deps_to_keep, \%surviving_deps)) {
+        delete $surviving_deps{$dep};
+    }
+}
+
 # Generate dynamic exclusions ONLY for surviving deps that aren't globally excluded
-generate_dynamic_exclusions_from_deps('.deps', \%surviving_deps, $exclusions, \%global_excludes);
+generate_dynamic_exclusions_from_deps('.deps', \%surviving_deps, $exclusions, \%global_excludes, $update);
 
 # Process and rewrite ivy.xml content
 $file_content =~ s{
@@ -384,31 +355,30 @@ $file_content =~ s{
         $replacement_str = $leading_whitespace . $dependency_block;
     }
     elsif (exists $keep_if_exists->{$dep_name} && grep {$keep_if_exists->{$dep_name} eq $_} @packages) {
-        print BOLD YELLOW "Keep $dep_name" . RESET . "\n";
+        log_warning("Keep $dep_name");
         $replacement_str = $leading_whitespace . $dependency_block;
     }
-    elsif (should_remove_transitive($dep_name, $current_rev, \%present_deps)) {
-        # Check if the audit found direct usage for this otherwise redundant transitive
+    elsif (should_remove_transitive($dep_name, $current_rev, \%present_deps, $update, \%used_deps_to_keep)) {
         if ($audit_deps && $used_deps_to_keep{$dep_name}) {
-            warn BOLD YELLOW "Keep direct dependency $dep_name (Transitive, but direct usage detected in code)" . RESET . "\n";
+            log_warning("Keep direct dependency $dep_name (Transitive, but direct usage detected in code)");
             $replacement_str = $leading_whitespace . $dependency_block;
         }
         else {
-            warn BOLD CYAN "Remove redundant transitive $dep_name (rev '$current_rev' is <= required override version)" . RESET . "\n";
+            log_info("Remove redundant transitive $dep_name (rev '$current_rev' is <= required override version)");
         }
     }
     elsif (grep {$dep_name =~ $_} @remove_packages) {
-        print BOLD CYAN "Remove $dep_name" . RESET . "\n";
+        log_info("Remove $dep_name");
     }
     elsif ($audit_deps && $unused_deps_to_drop{$dep_name}) {
-        print BOLD CYAN "Remove unused dependency $dep_name (no active imports in src/)" . RESET . "\n";
+        log_info("Remove unused dependency $dep_name (no active imports in src/)");
         # Format the comment to match current indentation
         #        my $indent = $leading_whitespace;
         #        $indent =~ s/.*\n//s; # Keep only the trailing spaces on the last line
         #        $replacement_str = "\n" . $indent . "<!-- [AUDIT] Removed '$dep_name': No active Java imports found in src/ -->";
     }
     elsif (grep {$dep_name eq $_} @packages) {
-        print BOLD YELLOW "Remove duplicate dependency $dep_name" . RESET . "\n";
+        log_warning("Remove duplicate dependency $dep_name");
     }
     else {
         push @packages, $dep_name; # keep list of dependencies we have found
@@ -421,24 +391,12 @@ $file_content =~ s{
             my $should_keep_rev = 0;
             my $new_rev_candidate = $update_entry_ref->{rev};
 
-            my ($current_v, $new_v);
-            my $current_v_norm = normalize_version($current_rev);
-            my $new_v_norm = normalize_version($new_rev_candidate);
-            eval {
-                $current_v = version->parse($current_v_norm);
-                $new_v = version->parse($new_v_norm);
-            };
-            if ($@) {
-                print BOLD RED "Could not parse version for $dep_org:$dep_name. Current='$current_v_norm', Proposed='$new_v_norm'" .
-                    RESET . "\n";
-                $should_keep_rev = 1;
-            }
-
             my $update_dep_name = $update_entry_ref->{name} || $dep_name;
             my $is_package_name_changing = ($update_entry_ref->{org} ne $dep_org || $update_dep_name ne $dep_name);
             if (defined $current_rev && !$is_package_name_changing && !$should_keep_rev) {
-                if ($current_v gt $new_v) {
-                    print BOLD YELLOW "Keep current rev for $dep_org:$dep_name: $current_rev" . RESET . "\n";
+                my $cmp = version_compare($current_rev, $new_rev_candidate);
+                if ($cmp > 0) {
+                    log_warning("Keep current rev for $dep_org:$dep_name: $current_rev");
                     $should_keep_rev = 1;
                 }
             }
@@ -450,32 +408,39 @@ $file_content =~ s{
 
                     if ($modified_dependency_block =~ s/\b$key="([^"]*)"/$key="$new_val"/i) {
                         # Attribute was updated
-                        print BOLD GREEN "Update $dep_name:$key to $new_val" . RESET . "\n" unless $1 eq $new_val;
+                        log_success("Update $dep_name:$key to $new_val") unless $1 eq $new_val;
                     }
                     else {
-                        print BOLD YELLOW "$dep_org,$dep_name attempting to add missing $key attribute" . RESET . "\n";
+                        log_warning("$dep_org,$dep_name attempting to add missing $key attribute");
                         if ($modified_dependency_block =~ s# /># $key="$new_val" />#) {
                             # Attribute was added
                         }
                         else {
-                            print BOLD RED "unable to add $key attribute" . RESET . "\n";
+                            log_error("unable to add $key attribute");
                         }
                     }
                 }
             }
 
             if (exists $recommendations->{$dep_name}) {
-                print BOLD MAGENTA $recommendations->{$dep_name} . RESET . "\n"
+                log_info($recommendations->{$dep_name});
             }
         }
 
+        # 1. Always strip existing inner <exclude> tags from the dependency block
+        $modified_dependency_block =~ s{\s*<exclude\s+(?:[^>]*?)\s*/>}{}gsi;              # Self-closing
+        $modified_dependency_block =~ s{\s*<exclude\s+(?:[^>]*?)>(?:.*?)</exclude>}{}gsi; # Opening/closing
+
+        # 2. Convert multi-line container back to self-closing if it became empty
+        if ($modified_dependency_block =~ m{^\s*<dependency\b([^>]*)>\s*</dependency>\s*$}s) {
+            my $attrs = $1;
+            $attrs =~ s/\s+$//;
+            $modified_dependency_block = "<dependency$attrs />";
+        }
+
+        # 3. Only attach new exclusions if explicit exclusion rules actually exist for this dep
         my $dep_exclusions = $exclusions->{$dep_name} || $exclusions->{"$dep_org,$dep_name"};
-        if (defined $dep_exclusions) {
-            # remove existing exclusions
-            print BOLD YELLOW "Removed old exclusions for $dep_name" . RESET . "\n"
-                if ($modified_dependency_block =~ s{\s*<exclude\s+(?:[^>]*?)\s*/>}{}gsi); # Self-closing
-            print BOLD YELLOW "Removed old exclusions for $dep_name" . RESET . "\n"
-                if ($modified_dependency_block =~ s{\s*<exclude\s+(?:[^>]*?)>(?:.*?)</exclude>}{}gsi); # Opening/closing tags
+        if (defined $dep_exclusions && @$dep_exclusions > 0) {
 
             my $current_dep_tag_indent = '';
             if ($leading_whitespace =~ m/^(\s*)/s) {
@@ -493,12 +458,9 @@ $file_content =~ s{
                 elsif ($modified_dependency_block =~ m{((?:\s*)</dependency>)$}s) {
                     $modified_dependency_block =~ s{((?:\s*)</dependency>)$}{$new_exclusions$1}s;
                 }
-                else {
-                    print BOLD RED "Warning: Could not find suitable place to insert exclusions for $dep_org,$dep_name" . RESET . "\n";
-                    $modified_dependency_block .= "\n" . $new_exclusions;
-                }
             }
         }
+
         $replacement_str = $leading_whitespace . $modified_dependency_block;
     }
 
@@ -528,7 +490,7 @@ sub generate_exclusion_xml {
             $exclusions_xml .= qq!\n$base_indent<exclude!;
             for my $attribute (@keyOrder) {
                 if (defined $rule->{$attribute}) {
-                    print BOLD BLUE "Adding exclusion: " . $attribute . "=" . $rule->{$attribute} . RESET . "\n";
+                    log_info("Adding exclusion: " . $attribute . "=" . $rule->{$attribute});
                     # Use quotemeta to escape attribute values in case they contain regex metacharacters
                     $exclusions_xml .= qq! $attribute="$rule->{$attribute}"!;
                 }
@@ -563,40 +525,67 @@ sub escape_whitespace {
     $str;
 }
 
+# Helper: Returns 1 if $v1 > $v2, -1 if $v1 < $v2, 0 if $v1 == $v2
+sub version_compare {
+    my ($v1, $v2) = @_;
+    return 0 if $v1 eq $v2;
+
+    # Clean versions to numeric components (e.g., "10.9.1.RELEASE" -> "10.9.1")
+    my @v1_parts = map {$_ // 0} ($v1 =~ /(\d+)/g);
+    my @v2_parts = map {$_ // 0} ($v2 =~ /(\d+)/g);
+
+    my $max_length = scalar @v1_parts > scalar @v2_parts ? scalar @v1_parts : scalar @v2_parts;
+
+    for (my $i = 0; $i < $max_length; $i++) {
+        my $p1 = $v1_parts[$i] // 0;
+        my $p2 = $v2_parts[$i] // 0;
+
+        return 1 if $p1 > $p2;
+        return -1 if $p1 < $p2;
+    }
+
+    return 0;
+}
+
 sub should_remove_transitive {
-    my ($dep_name, $current_rev, $present_deps_ref) = @_;
+    my ($dep_name, $current_rev, $present_deps_ref, $update_ref, $used_deps_ref, $surviving_deps_ref) = @_;
     return 0 unless defined $current_rev;
+    return 0 unless defined $remove_redundant_transitives_versioned
+        && ref($remove_redundant_transitives_versioned) eq 'HASH';
+
+    # 1. Direct code usage in src/ -> KEEP
+    if ($used_deps_ref && exists $used_deps_ref->{$dep_name}) {
+        log_info("Keep direct dependency $dep_name (Direct usage detected in src/)");
+        return 0;
+    }
 
     for my $parent_pkg (keys %$remove_redundant_transitives_versioned) {
-        # Only check if the parent dependency (e.g., hibernate-core) is present in the file
-        if (exists $present_deps_ref->{$parent_pkg}) {
+        if (exists $surviving_deps_ref->{$parent_pkg}) {
             my $targets = $remove_redundant_transitives_versioned->{$parent_pkg};
 
             if (exists $targets->{$dep_name}) {
-                my $max_version_str = $targets->{$dep_name};
+                my $transitive_rev = $targets->{$dep_name};
 
-                my ($curr_v, $max_v);
-                eval {
-                    $curr_v = version->parse(normalize_version($current_rev));
-                    $max_v = version->parse(normalize_version($max_version_str));
-                };
+                my $target_rev = $update_ref->{$dep_name}->{rev} if defined $update_ref && exists $update_ref->{$dep_name};
+                my $effective_rev = $target_rev || $current_rev;
 
-                if ($@) {
-                    print BOLD RED "Version parse error comparing $dep_name ($current_rev vs $max_version_str)" . RESET . "\n";
-                    return 0; # On error, safely keep the dependency
-                }
+                # Compare versions numerically: 10.9 vs 9.1
+                my $cmp = version_compare($effective_rev, $transitive_rev);
 
-                # If current version is less than or equal to threshold, mark for removal
-                if ($curr_v <= $max_v) {
-                    return 1;
+                if ($cmp > 0) {
+                    # Direct version (e.g. 10.9) is STRICTLY NEWER than transitive (e.g. 9.1) -> KEEP
+                    log_success("Keeping direct dependency $dep_name ($effective_rev > $transitive_rev - explicit version override)");
+                    return 0;
                 }
                 else {
-                    print BOLD GREEN "Keeping direct dependency $dep_name ($current_rev > $max_version_str) assumed Snyk override" . RESET . "\n";
-                    return 0;
+                    # Transitive is >= direct version (e.g. 9.1 >= 9.1 or 10.9 >= 10.9) -> DROP direct dependency
+                    log_info("Dropping direct dependency $dep_name (Transitively supplied by surviving parent '$parent_pkg' at $transitive_rev)");
+                    return 1;
                 }
             }
         }
     }
+
     return 0;
 }
 
@@ -613,7 +602,7 @@ sub update_deps_file {
         return;
     }
 
-    print BOLD CYAN "INFO: Generating $deps_file from Ant show-deps target..." . RESET . "\n";
+    log_info("INFO: Generating $deps_file from Ant show-deps target...");
 
     open(my $ant_fh, "$ant_cmd 2>&1 |") or die "Failed to execute Ant command: $!\n";
 
@@ -639,7 +628,7 @@ sub update_deps_file {
             }
         }
         elsif ($line =~ /Target "show-deps" does not exist/) {
-            print BOLD RED "update my-build.xml" . RESET . "\n";
+            log_error("update my-build.xml");
             return;
         }
     }
@@ -650,10 +639,10 @@ sub update_deps_file {
     close($deps_out);
 
     if (!(stat($deps_file))->size) {
-        print BOLD RED "FAILURE: could not generate " . $deps_file . RESET . "\n";
+        log_error("FAILURE: could not generate " . $deps_file);
     }
     else {
-        print BOLD GREEN "SUCCESS: Updated $deps_file with direct and 1st-generation dependencies." . RESET . "\n";
+        log_success("SUCCESS: Updated $deps_file with direct and 1st-generation dependencies.");
     }
 }
 
@@ -681,7 +670,7 @@ sub extract_all_referenced_packages {
     my @src_dirs = ref($src_dirs_ref) eq 'ARRAY' ? @{$src_dirs_ref} : ($src_dirs_ref);
     @src_dirs = grep {-d $_} @src_dirs;
 
-    print BOLD CYAN "Scanning source directories (" . join(', ', @src_dirs) . ") and webapp..." . RESET . "\n";
+    log_info("Scanning source directories (" . join(', ', @src_dirs) . ") and webapp...");
 
     my $register = sub {
         my ($raw) = @_;
@@ -783,88 +772,68 @@ sub extract_all_referenced_packages {
         }, $webapp_dir);
     }
 
-    print BOLD GREEN "Extracted " . (scalar keys %referenced_packages) . " unique package/class references." . RESET . "\n";
+    log_success("Extracted " . (scalar keys %referenced_packages) . " unique package/class references.");
     return %referenced_packages;
 }
 
 sub audit_dependencies {
-    my ($src_dirs_ref, $lib_dir, $webapp_dir, $ivy_file) = @_;
-    $lib_dir ||= (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
-    $webapp_dir ||= "war";
-    $ivy_file ||= "ivy.xml";
+    my ($src_dirs, $libdir) = @_;
+    my %unused_deps;
+    my %used_deps;
+    my %class_to_deps;
+    my $file_types = 'jsp|xml|properties';
 
-    my @src_dirs = ref($src_dirs_ref) eq 'ARRAY' ? @{$src_dirs_ref} : ($src_dirs_ref);
-    @src_dirs = grep {defined $_ && -d $_} @src_dirs;
+    log_info("Auditing dependencies in directories: @$src_dirs");
 
-    my %unused_map;
-    my %used_map; # NEW: Track dependencies that have direct code references
-    print BOLD CYAN "--- AUDITING DIRECT DEPENDENCIES ---" . RESET . "\n";
+    my $dependencies = detect_dependencies($src_dirs, $file_types);
 
-    unless (@src_dirs && -d $lib_dir) {
-        print BOLD RED "Error: No valid source or library directories found." . RESET . "\n";
-        return (\%unused_map, \%used_map);
-    }
+    # Traverse source directories
+    for my $src_dir (@$src_dirs) {
+        find(sub {
+            return unless -f $_ && $_ =~ /\.java$/;
+            my $class_file = $File::Find::name;
+            open my $fh, '<', $class_file or return;
 
-    my %declared_deps = get_declared_ivy_dependencies($ivy_file);
-    my %used_packages = extract_all_referenced_packages(\@src_dirs, $webapp_dir);
-    my @jars = glob("$lib_dir/*.jar");
-
-    for my $jar_file (@jars) {
-        my ($filename) = $jar_file =~ m{([^/]+)\.jar$};
-        my $dep_name = $filename;
-        $dep_name =~ s/-\d+.*$//;
-
-        next unless exists $declared_deps{$dep_name};
-
-        my %jar_packages;
-        open(my $jar_fh, "jar tf \"$jar_file\" 2>&1 |") or next;
-        while (my $entry = <$jar_fh>) {
-            $entry =~ s#[\r\n]+##g;
-            next unless $entry =~ /\.class$/ && $entry !~ /^META-INF/;
-
-            my $fqcn = $entry;
-            $fqcn =~ s#\.class$##;
-            $fqcn =~ s#/#.#g;
-            $fqcn =~ s#\$.*$##;
-
-            $jar_packages{$fqcn} = 1;
-
-            my $pkg = $fqcn;
-            if ($pkg =~ s#\.[A-Z][a-zA-Z0-9_]*$##) {
-                $jar_packages{$pkg} = 1;
-            }
-        }
-        close($jar_fh);
-
-        my $is_used = 0;
-        FOR_ITEM:
-        for my $jar_pkg (keys %jar_packages) {
-            if (exists $used_packages{$jar_pkg}) {
-                $is_used = 1;
-                last FOR_ITEM;
-            }
-            for my $ref_pkg (keys %used_packages) {
-                if ($ref_pkg eq $jar_pkg || $ref_pkg =~ /^\Q$jar_pkg\E\./ || $jar_pkg =~ /^\Q$ref_pkg\E\./) {
-                    $is_used = 1;
-                    last FOR_ITEM;
+            while (my $line = <$fh>) {
+                if ($line =~ /import\s+([a-zA-Z0-9_.]+);/) {
+                    my $import = $1;
+                    $class_to_deps{$class_file}{$import} = 1;
                 }
             }
-        }
+            close $fh;
+        }, $src_dir);
+    }
 
-        # Route the dependency to the correct map based on usage
-        if ($is_used) {
-            $used_map{$dep_name} = 1;
-        }
-        else {
-            $unused_map{$dep_name} = 1;
+    # Analyze dependencies
+    for my $class (keys %class_to_deps) {
+        for my $import (keys %{$class_to_deps{$class}}) {
+            if ($import =~ /^(?:java|javax)\./) {
+                next; # Skip standard libraries
+            }
+
+            if ($class =~ m{^\.\./}) {
+                $unused_deps{$import} = 1;
+            }
+            else {
+                $used_deps{$import} = 1;
+            }
         }
     }
 
-    my $unused_count = scalar keys %unused_map;
-    my $used_count = scalar keys %used_map;
-    print BOLD GREEN "SUCCESS: Audit complete. Found $unused_count unused to drop, $used_count directly used to protect." . RESET . "\n";
+    return ($dependencies, {}); # Replace with actual return values
+}
 
-    return (\%unused_map, \%used_map);
+sub filter_dependencies {
+    my ($used_deps_ref, $all_deps_ref) = @_;
+    my %filtered_deps;
+
+    for my $dep (keys %$all_deps_ref) {
+        if (exists $used_deps_ref->{$dep}) {
+            $filtered_deps{$dep} = $all_deps_ref->{$dep};
+        }
+    }
+
+    return \%filtered_deps;
 }
 
 sub generate_transitive_map_from_deps {
@@ -917,7 +886,7 @@ sub generate_transitive_map_from_deps {
 }
 
 sub generate_dynamic_exclusions_from_deps {
-    my ($deps_file, $surviving_deps_ref, $exclusions_ref, $global_excludes_ref) = @_;
+    my ($deps_file, $surviving_deps_ref, $exclusions_ref, $global_excludes_ref, $update_ref) = @_;
 
     return unless -e $deps_file;
 
@@ -943,12 +912,32 @@ sub generate_dynamic_exclusions_from_deps {
                 if ($depth > 0 && defined $stack[0]) {
                     my $root_parent = $stack[0];
 
-                    # 1. Skip if the module is ALREADY globally excluded
                     next if exists $global_excludes_ref->{$name};
                     next if exists $global_excludes_ref->{"org:$org"};
 
-                    # 2. Only exclude if it survives as an explicit direct dependency
+                    # Check if this transitive dependency is overridden directly
                     if (exists $surviving_deps_ref->{$name} && $name ne $root_parent) {
+
+                        # ------------------------------------------------------------------
+                        # RULE: Only insert an <exclude> if the artifact/group name CHANGED!
+                        # ------------------------------------------------------------------
+                        my $needs_exclude = 0;
+
+                        if (exists $update_ref->{$name}) {
+                            my $update_entry = $update_ref->{$name};
+                            my $new_org = $update_entry->{org} || $org;
+                            my $new_name = $update_entry->{name} || $name;
+
+                            # If Org or Module Name shifted (e.g. javax -> jakarta or commons-lang -> commons-lang3),
+                            # Ivy won't evict it automatically, so an EXCLUDE is REQUIRED.
+                            if ($new_org ne $org || $new_name ne $name) {
+                                $needs_exclude = 1;
+                            }
+                        }
+
+                        # If it's just a normal version bump for the same org & name,
+                        # Ivy's latest-revision resolver evicts it automatically -> SKIP EXCLUDE!
+                        next unless $needs_exclude;
 
                         $exclusions_ref->{$root_parent} ||= [];
 
@@ -963,6 +952,7 @@ sub generate_dynamic_exclusions_from_deps {
 
                         if (!$already_excluded) {
                             push @{$exclusions_ref->{$root_parent}}, { module => $name };
+                            log_info("Generated necessary exclusion for renamed artifact '$name' under '$root_parent'");
                         }
                     }
                 }
@@ -999,50 +989,39 @@ sub extract_global_exclusions {
 }
 
 sub promote_transitive_updates_to_add_if_missing {
-    my ($deps_file, $updates_ref, $inject_deps_ref, $file_content_ref) = @_;
+    my ($deps_file, $promotions_ref, $inject_deps_ref, $file_content_ref) = @_;
 
-    return unless -e $deps_file;
+    return unless -e $deps_file && defined $promotions_ref;
 
     open(my $fh, '<', $deps_file) or return;
 
-    my $promoted_count = 0;
-
     while (my $line = <$fh>) {
         chomp $line;
-
-        # Clean Ivy tree symbols (| \- +- spaces)
         $line =~ s/^[\s|\\+\-]+//;
 
-        # Match clean org#module;version
         if ($line =~ /^([^#]+)#([^;]+);/) {
             my $org = $1;
             my $dep_name = $2;
 
-            # Check if this transitive module exists in $update
-            if (exists $updates_ref->{$dep_name}) {
-                my $target = $updates_ref->{$dep_name};
+            # Only promote if explicitly defined in $promotions_ref
+            if (exists $promotions_ref->{$dep_name}) {
+                my $target = $promotions_ref->{$dep_name};
                 my $new_name = $target->{name} || $dep_name;
 
-                # Only act if $new_name is not ALREADY explicitly declared in ivy.xml
                 if ($$file_content_ref !~ /name="\Q$new_name\E"/) {
-
                     unless (exists $inject_deps_ref->{$new_name}) {
                         $inject_deps_ref->{$new_name} = {
                             org  => $target->{org} || $org,
                             rev  => $target->{rev},
                             conf => $target->{conf} || 'runtime->default',
                         };
-
-                        $promoted_count++;
-                        warn BOLD GREEN "[INFO] Detected transitive '$dep_name' in .deps -> Promoting '$new_name' to direct dependency" . RESET . "\n";
+                        log_info("Promoting '$dep_name' -> '$new_name' ($target->{rev}) as direct dependency");
                     }
                 }
             }
         }
     }
     close($fh);
-
-    return $promoted_count;
 }
 
 sub process_parent_triggered_additions {
@@ -1131,7 +1110,7 @@ sub process_parent_triggered_additions {
                         $new_dep_xml = qq!\n$current_dep_tag_indent<dependency org="$org" name="$name" rev="$dep->{rev}" conf="$conf" />!;
                     }
 
-                    print BOLD MAGENTA "Add missing $trigger_pkg_name dependency $name" . RESET . "\n";
+                    log_info("Add missing $trigger_pkg_name dependency $name");
                     $xml_to_insert .= $new_dep_xml;
                 }
             }
@@ -1153,103 +1132,93 @@ sub process_parent_triggered_additions {
 sub insert_missing_dependencies {
     my ($file_content_ref, $add_if_missing_ref, $update_ref, $exclusions_ref) = @_;
 
-    # ----------------------------------------------------------------------
-    # 1. Promote & Inject Transitive Upgrades (Bouncy Castle)
-    # ----------------------------------------------------------------------
-    my $transitive_promotions = {
-        'bcprov-jdk15on' => { name => 'bcprov-jdk18on', rev => '1.80', org => 'org.bouncycastle' },
-        'bcpkix-jdk15on' => { name => 'bcpkix-jdk18on', rev => '1.80', org => 'org.bouncycastle' },
-        'bcutil-jdk15on' => { name => 'bcutil-jdk18on', rev => '1.80', org => 'org.bouncycastle' },
-    };
-
-    my %inject_direct_deps;
-    promote_transitive_updates_to_add_if_missing('.deps', $transitive_promotions, \%inject_direct_deps, $file_content_ref);
-
-    # Guard Clause: If NO legacy jdk15on transitives were found in .deps, do NOTHING!
-    unless (keys %inject_direct_deps) {
-        return;
+    # 1. Process parent-triggered additions ONLY if explicitly listed in $add_if_missing
+    if (defined $add_if_missing_ref && %$add_if_missing_ref) {
+        process_parent_triggered_additions($file_content_ref, $add_if_missing_ref, $update_ref, $exclusions_ref);
     }
 
-    # Avoid unnecessary sub-module bloat if core provider exists
-    if (exists $inject_direct_deps{'bcpkix-jdk18on'} && exists $inject_direct_deps{'bcprov-jdk18on'}) {
-        delete $inject_direct_deps{'bcpkix-jdk18on'};
-        delete $inject_direct_deps{'bcutil-jdk18on'};
+    # 2. Determine indentation based on existing dependency tags
+    my $indentation = '    ';
+    while ($$file_content_ref =~ m{^(\s*)<dependency\s+}gm) {
+        $indentation = $1 if defined $1;
     }
 
-    # Build injected direct dependency tags
-    my $deps_to_inject_xml = "";
-    for my $dep_name (sort keys %inject_direct_deps) {
-        my $info = $inject_direct_deps{$dep_name};
-        my $org = $info->{org};
-        my $rev = $info->{rev};
-        my $conf = $info->{conf} || 'runtime->default';
-
-        if ($$file_content_ref !~ /name="\Q$dep_name\E"/) {
-            $deps_to_inject_xml .= "    <dependency org=\"$org\" name=\"$dep_name\" rev=\"$rev\" conf=\"$conf\" />\n";
-            warn BOLD GREEN "[INJECTED] Added direct dependency for $dep_name ($rev)" . RESET . "\n";
-        }
-    }
-
-    # ----------------------------------------------------------------------
-    # Safe Structural Injection: Place after the LAST <dependency> tag
-    # ----------------------------------------------------------------------
-    my $indentation = '    '; # Default fallback
-    if (length $deps_to_inject_xml > 0) {
-        my $last_pos = -1;
-
-        while ($$file_content_ref =~ m{
-            ^(\s*)                       # $1: Indentation
-            <dependency\s+
-            (?:[^>]|"[^"]*")*?
-            (?:
-                />                       # Form 1: Self-closing <dependency ... />
-                |
-                >                        # Form 2: Multi-line container <dependency>...</dependency>
-                (?:
-                    (?!</dependency>)
-                    (?!<dependency\s+)
-                    .
-                )*?
-                </dependency>
-            )
-        }gsmx) {
-            $last_pos = $+[0];
-            if (defined $1) {
-                $indentation = $1;
-                $indentation =~ s/[\r\n]+//g; # Clean out any linefeed / carriage returns
-            }
-        }
-
-        if ($last_pos != -1) {
-            my $formatted_deps_xml = "";
-            for my $line (split /\r?\n/, $deps_to_inject_xml) {
-                next unless $line =~ /\S/;
-                $line =~ s/^\s*//;
-                $formatted_deps_xml .= "\n" . $indentation . $line;
-            }
-
-            substr($$file_content_ref, $last_pos, 0) = "\n" . $formatted_deps_xml;
-            warn BOLD GREEN "[INJECTED] Appended direct dependencies after the last existing dependency block." . RESET . "\n";
-        }
-        else {
-            $$file_content_ref =~ s{(<dependencies[^>]*>)}{$1\n$deps_to_inject_xml};
-        }
-    }
-
-    # ----------------------------------------------------------------------
-    # 2. Process Parent-Triggered Additions
-    # ----------------------------------------------------------------------
-    process_parent_triggered_additions($file_content_ref, $add_if_missing_ref, $update_ref, $exclusions_ref);
-
-    # ----------------------------------------------------------------------
-    # Inject Standalone Exclusions
-    # ----------------------------------------------------------------------
-    if ($$file_content_ref !~ /<exclude\s+[^>]*org="org\.bouncycastle"[^>]*module="\*-jdk15on"/) {
-        my $exclude_indent = $indentation || '    ';
-        my $exclude_xml = "${exclude_indent}<exclude org=\"org.bouncycastle\" module=\"*-jdk15on\" />";
-
+    # 3. Ensure global exclusion for Bouncy Castle jdk15on is present at the end of <dependencies>
+    if ($$file_content_ref !~ /<exclude\s+.*bouncycastle.*jdk15on"/) {
+        my $exclude_xml = "${indentation}<exclude org=\"org.bouncycastle\" module=\".*-jdk15on\" matcher=\"regexp\" />";
         $$file_content_ref =~ s{(\s*</dependencies>)}{\n$exclude_xml$1};
-        warn BOLD MAGENTA "[GLOBAL EXCLUDE] Added exclusion for org.bouncycastle#*-jdk15on" . RESET . "\n";
+        log_info("[GLOBAL EXCLUDE] Added exclusion for org.bouncycastle#*-jdk15on");
+    }
+}
+
+# Enhance dependency detection to include JSP, XML, and properties files
+sub detect_dependencies {
+    my ($src_dirs, $file_types) = @_;
+    my %dependencies;
+
+    for my $dir (@$src_dirs) {
+        find({
+            wanted   => sub {
+                return unless -f $_;
+                my $file = $File::Find::name;
+
+                if ($file =~ /\.(?:jsp|xml|properties)$/) {
+                    log_info("Scanning file: $file");
+
+                    open my $fh, '<', $file or do {
+                        log_warning("Could not open file: $file: $!");
+                        return;
+                    };
+
+                    while (my $line = <$fh>) {
+                        # Example regex for detecting dependencies (adjust as needed)
+                        if ($line =~ /<dependency\s+org="([^"]+)"\s+name="([^"]+)"/) {
+                            my $dependency = "$1:$2";
+                            $dependencies{$dependency}++;
+                            log_info("Detected dependency: $dependency in $file");
+                        }
+                    }
+
+                    close $fh;
+                }
+            },
+            no_chdir => 1
+        },
+            $dir);
+    }
+
+    return \%dependencies;
+}
+
+# Add logging for dependency detection
+sub log_info {
+    my ($message) = @_;
+    print BOLD CYAN "[INFO] $message" . RESET . "\n";
+}
+
+sub log_warning {
+    my ($message) = @_;
+    print BOLD YELLOW "[WARNING] $message" . RESET . "\n";
+}
+
+sub log_error {
+    my ($message) = @_;
+    print BOLD RED "[ERROR] $message" . RESET . "\n";
+}
+
+sub log_success {
+    my ($message) = @_;
+    print BOLD GREEN "[SUCCESS] $message" . RESET . "\n";
+}
+
+# Add logging for file existence checks
+sub log_file_check {
+    my ($file_path) = @_;
+    if (-e $file_path) {
+        log_info("File exists: $file_path");
+    }
+    else {
+        log_warning("File does not exist: $file_path");
     }
 }
 
