@@ -131,8 +131,8 @@ my $update = {
     "spring-boot-autoconfigure"                => { org => "org.springframework.boot", name => "spring-boot-autoconfigure", rev => "3.5.14" },
     # <!-- Miscellaneous -->
     "jcc"                                      => { org => "com.ibm.db2", name => "jcc", rev => "11.5.9.0" },
-    "ojdbc8"                                   => { org => "com.oracle.database.jdbc", name => "ojdbc8", rev => "23.26.0.0.0" },
-    "displaytag"                               => { org => "com.github.hazendaz", name => "displaytag", rev => "3.6.0" },
+    "ojdbc8"                                   => { org => "com.oracle.database.jdbc", name => "ojdbc8", rev => "23.26.2.0.0" },
+    "displaytag"                               => { org => "com.github.hazendaz", name => "displaytag", rev => "3.8.0" },
     "fop"                                      => { org => "org.apache.xmlgraphics", name => "fop", rev => "2.10" },
     "commons-collections4"                     => { org => "org.apache.commons", name => "commons-collections4", rev => "4.5.0" },
     "commons-lang3"                            => { org => "org.apache.commons", name => "commons-lang3", rev => "3.20.0" },
@@ -141,7 +141,7 @@ my $update = {
     "commons-dbcp2"                            => { org => "org.apache.commons", name => "commons-dbcp2", rev => "2.14.0" },
     "commons-io"                               => { org => "commons-io", name => "commons-io", rev => "2.22.0" },
     "angus-mail"                               => { org => "org.eclipse.angus", name => "angus-mail", rev => "2.1.0-M1" },
-    "joda-time"                                => { org => "joda-time", name => "joda-time", rev => "2.14.0" },
+    "joda-time"                                => { org => "joda-time", name => "joda-time", rev => "2.14.2" },
     "jaxen"                                    => { org => "jaxen", name => "jaxen", rev => "2.0.6" },
     # <!-- Logging -->
     "log4j-api"                                => { org => "org.apache.logging.log4j", name => "log4j-api", rev => "2.26.1" },
@@ -153,9 +153,9 @@ my $update = {
     # <!-- UNIT TESTS -->
     "junit"                                    => { org => "junit", name => "junit", rev => "4.13.2", conf => "compile->default" },
     "easymock"                                 => { org => "org.easymock", name => "easymock", rev => "5.6.0", conf => "compile->default" },
-    "mockito-core"                             => { org => "org.mockito", name => "mockito-core", rev => "5.19.0", conf => "compile->default" },
+    "mockito-core"                             => { org => "org.mockito", name => "mockito-core", rev => "5.23.0", conf => "compile->default" },
     # <!-- WEB RUNTIME -->
-    "encoder-jakarta-jsp"                      => { org => "org.owasp.encoder", name => "encoder-jakarta-jsp", rev => "1.3.1" },
+    "encoder-jakarta-jsp"                      => { org => "org.owasp.encoder", name => "encoder-jakarta-jsp", rev => "1.4.0" },
     "sitemesh"                                 => { org => "opensymphony", name => "sitemesh", rev => "2.7.0-M1" },
     # <!-- WEB COMPILE -->
     "jakarta.servlet-api"                      => { org => "jakarta.servlet", name => "jakarta.servlet-api", rev => "6.0.0", conf => 'compile->default' },
@@ -174,7 +174,7 @@ my $update = {
     "jakarta.transaction-api"                  => { org => "jakarta.transaction", name => "jakarta.transaction-api", rev => "2.0.1" },
     # <!-- CAS for SSO - ONLY FOR ATLAS APPS -->
     "cas-client-core"                          => { org => "org.apereo.cas.client", name => "cas-client-core", rev => "4.0.4" },
-    "nimbus-jose-jwt"                          => { org => "com.nimbusds", name => "nimbus-jose-jwt", rev => "10.9" },
+    "nimbus-jose-jwt"                          => { org => "com.nimbusds", name => "nimbus-jose-jwt", rev => "10.9.1" },
     # <!-- Other -->
     "poi"                                      => { org => "org.apache.poi", name => "poi", rev => "5.4.1" },
     "poi-ooxml"                                => { org => "org.apache.poi", name => "poi-ooxml", rev => "5.4.1" },
@@ -188,9 +188,9 @@ my $update = {
     "jackson-databind"                         => { org => "com.fasterxml.jackson.core", name => "jackson-databind", rev => "2.22.1" },
     "jackson-datatype-jsr310"                  => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-jsr310", rev => "2.22.1" },
     "jackson-datatype-json-org"                => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-json-org", rev => "2.22.1" },
-    "itextpdf"                                 => { org => "com.itextpdf", name => "itextpdf", rev => "5.5.13.4" },
-    "itext-pdfa"                               => { org => "com.itextpdf", name => "itext-pdfa", rev => "5.5.13.4" },
-    "itext-xtra"                               => { org => "com.itextpdf", name => "itext-xtra", rev => "5.5.13.4" },
+    "itextpdf"                                 => { org => "com.itextpdf", name => "itextpdf", rev => "5.5.13.5" },
+    "itext-pdfa"                               => { org => "com.itextpdf", name => "itext-pdfa", rev => "5.5.13.5" },
+    "itext-xtra"                               => { org => "com.itextpdf", name => "itext-xtra", rev => "5.5.13.5" },
     "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.22.0" },
     "jakarta.xml.soap-api"                     => { org => "jakarta.xml.soap", name => "jakarta.xml.soap-api", rev => "3.0.2" },
     "jakarta.xml.ws-api"                       => { org => "jakarta.xml.ws", name => "jakarta.xml.ws-api", rev => "4.0.3" },
@@ -203,7 +203,7 @@ my $update = {
     "encoder"                                  => { org => "org.owasp.encoder", name => "encoder", rev => "1.3.1" },
     "slf4j-log4j12"                            => { org => "org.slf4j", name => "slf4j-log4j12", rev => "1.7.34" },
     "slf4j-reload4j"                           => { org => "org.slf4j", name => "slf4j-reload4j", rev => "2.0.1" },
-    "jakarta.validation-api"                   => { org => "jakarta.validation", name => "jakarta.validation-api", rev => "3.0.2" },
+    "jakarta.validation-api"                   => { org => "jakarta.validation", name => "jakarta.validation-api", rev => "3.1.1" },
     "esapi"                                    => { org => "org.owasp.esapi", name => "esapi", rev => "2.7.0.0" },
 
     # current versions just to help convert old build.xml projects to ivy.xml
@@ -212,7 +212,7 @@ my $update = {
     # ehcache
     "cache-api"                                => { org => "javax.cache", name => "cache-api", rev => "1.1.1" },
     "ehcache"                                  => { org => "org.ehcache", name => "ehcache", rev => "3.12.0" },
-    "jaxb-runtime"                             => { org => "org.glassfish.jaxb", name => "jaxb-runtime", rev => "4.0.5" },
+    "jaxb-runtime"                             => { org => "org.glassfish.jaxb", name => "jaxb-runtime", rev => "4.0.9" },
 
     "ignite-core"                              => { org => "org.apache.ignite", name => "ignite-core", rev => "2.18.0" },
     "ignite-spring"                            => { org => "org.apache.ignite", name => "ignite-spring", rev => "2.18.0" },
