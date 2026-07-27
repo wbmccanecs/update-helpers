@@ -4,6 +4,8 @@ use strict;
 use warnings;
 use File::stat;
 use File::Find;
+use File::Basename;
+use Cwd 'abs_path';
 use Term::ANSIColor qw{:constants};
 use version;
 
@@ -20,40 +22,40 @@ for my $arg (@ARGV) {
 }
 
 my %unused_deps_to_drop;
-my %used_deps_to_keep;
+my $libdir = (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
+
+my @src_dirs = ('src', 'test');
+if (-e "$libdir/mgic-business.jar") {
+    log_file_check("$libdir/mgic-business.jar");
+    push @src_dirs, "../mgic_business/src";
+}
+if (-e "$libdir/mgic-common.jar") {
+    log_file_check("$libdir/mgic-common.jar");
+    push @src_dirs, "../mgic_common/src";
+}
+if (-e "$libdir/mgic-entity-custom.jar" || -e "$libdir/mgic-entity-master.jar") {
+    log_file_check("$libdir/mgic-entity-custom.jar") if -e "$libdir/mgic-entity-custom.jar";
+    log_file_check("$libdir/mgic-entity-master.jar") if -e "$libdir/mgic-entity-master.jar";
+    log_error("Both mgic-entity-custom.jar and mgic-entity-master.jar exist. Please remove one of them.")
+        if -e "$libdir/mgic-entity-custom.jar" && -e "$libdir/mgic-entity-master.jar";
+    push @src_dirs, "../mgic_entity/src";
+}
+if (-e "$libdir/mgic-mux.jar") {
+    log_file_check("$libdir/mgic-mux.jar");
+    push @src_dirs, "../mgic_mux/src";
+}
+if (-e "$libdir/mgic-persistence.jar") {
+    log_file_check("$libdir/mgic-persistence.jar");
+    push @src_dirs, "../mgic_persistence/src";
+}
+
+my %used_deps_to_keep = extract_all_referenced_packages(\@src_dirs, (-d 'war' ? 'war' : undef));
 
 if ($audit_deps) {
-    my $libdir = (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
     log_file_check($libdir);
-
-    my @src_dirs = ('src', 'test');
-    if (-e "$libdir/mgic-business.jar") {
-        log_file_check("$libdir/mgic-business.jar");
-        push @src_dirs, "../mgic_business/src";
-    }
-    if (-e "$libdir/mgic-common.jar") {
-        log_file_check("$libdir/mgic-common.jar");
-        push @src_dirs, "../mgic_common/src";
-    }
-    if (-e "$libdir/mgic-entity-custom.jar" || -e "$libdir/mgic-entity-master.jar") {
-        log_file_check("$libdir/mgic-entity-custom.jar") if -e "$libdir/mgic-entity-custom.jar";
-        log_file_check("$libdir/mgic-entity-master.jar") if -e "$libdir/mgic-entity-master.jar";
-        log_error("Both mgic-entity-custom.jar and mgic-entity-master.jar exist. Please remove one of them.")
-            if -e "$libdir/mgic-entity-custom.jar" && -e "$libdir/mgic-entity-master.jar";
-        push @src_dirs, "../mgic_entity/src"
-    }
-    if (-e "$libdir/mgic-mux.jar") {
-        log_file_check("$libdir/mgic-mux.jar");
-        push @src_dirs, "../mgic_mux/src";
-    }
-    if (-e "$libdir/mgic-persistence.jar") {
-        log_file_check("$libdir/mgic-persistence.jar");
-        push @src_dirs, "../mgic_persistence/src";
-    }
 
     my ($unused_ref, $used_ref) = audit_dependencies(\@src_dirs, $libdir);
     %unused_deps_to_drop = %$unused_ref;
-    %used_deps_to_keep = %{filter_dependencies($used_ref, \%used_deps_to_keep)};
 }
 
 my @remove_packages = (
@@ -104,168 +106,20 @@ my $springSecurityVersion = '6.5.4';
 
 my @keyOrder = ("org", "module", "name");
 
-my $update = {
-    # <!-- Spring -->
-    "spring-core"                              => { org => "org.springframework", name => "spring-core", rev => $springVersion },
-    "spring-beans"                             => { org => "org.springframework", name => "spring-beans", rev => $springVersion },
-    "spring-context"                           => { org => "org.springframework", name => "spring-context", rev => $springVersion },
-    "spring-context-support"                   => { org => "org.springframework", name => "spring-context-support", rev => $springVersion },
-    "spring-expression"                        => { org => "org.springframework", name => "spring-expression", rev => $springVersion },
-    "spring-jms"                               => { org => "org.springframework", name => "spring-jms", rev => $springVersion },
-    "spring-messaging"                         => { org => "org.springframework", name => "spring-messaging", rev => $springVersion },
-    "spring-test"                              => { org => "org.springframework", name => "spring-test", rev => $springVersion },
-    "spring-tx"                                => { org => "org.springframework", name => "spring-tx", rev => $springVersion },
-    "spring-data-jpa"                          => { org => "org.springframework.data", name => "spring-data-jpa", rev => "3.5.12" },
-    "spring-web"                               => { org => "org.springframework", name => "spring-web", rev => $springVersion },
-    "spring-webmvc"                            => { org => "org.springframework", name => "spring-webmvc", rev => $springVersion },
-    "spring-websocket"                         => { org => "org.springframework", name => "spring-websocket", rev => $springVersion },
-    "spring-aop"                               => { org => "org.springframework", name => "spring-aop", rev => $springVersion },
-    "spring-aspects"                           => { org => "org.springframework", name => "spring-aspects", rev => $springVersion },
-    "spring-security-core"                     => { org => "org.springframework.security", name => "spring-security-core", rev => "6.5.4" },
-    "spring-security-crypto"                   => { org => "org.springframework.security", name => "spring-security-crypto", rev => $springSecurityVersion },
-    "spring-security-web"                      => { org => "org.springframework.security", name => "spring-security-web", rev => $springSecurityVersion },
-    "spring-security-config"                   => { org => "org.springframework.security", name => "spring-security-config", rev => $springSecurityVersion },
-    "spring-security-oauth2-resource-server"   => { org => "org.springframework.security", name => "spring-security-oauth2-resource-server", rev => $springSecurityVersion },
-    "spring-security-test"                     => { org => "org.springframework.security", name => "spring-security-test", rev => $springSecurityVersion },
-    "spring-security-oauth2-jose"              => { org => "org.springframework.security", name => "spring-security-oauth2-jose", rev => $springSecurityVersion },
-    "spring-boot-autoconfigure"                => { org => "org.springframework.boot", name => "spring-boot-autoconfigure", rev => "3.5.14" },
-    # <!-- Miscellaneous -->
-    "jcc"                                      => { org => "com.ibm.db2", name => "jcc", rev => "11.5.9.0" },
-    "ojdbc8"                                   => { org => "com.oracle.database.jdbc", name => "ojdbc8", rev => "23.26.2.0.0" },
-    "displaytag"                               => { org => "com.github.hazendaz", name => "displaytag", rev => "3.8.0" },
-    "fop"                                      => { org => "org.apache.xmlgraphics", name => "fop", rev => "2.10" },
-    "commons-collections4"                     => { org => "org.apache.commons", name => "commons-collections4", rev => "4.5.0" },
-    "commons-lang3"                            => { org => "org.apache.commons", name => "commons-lang3", rev => "3.20.0" },
-    "commons-text"                             => { org => "org.apache.commons", name => "commons-text", rev => "1.15.0" },
-    "commons-beanutils"                        => { org => "commons-beanutils", name => "commons-beanutils", rev => "1.11.0" },
-    "commons-dbcp2"                            => { org => "org.apache.commons", name => "commons-dbcp2", rev => "2.14.0" },
-    "commons-io"                               => { org => "commons-io", name => "commons-io", rev => "2.22.0" },
-    "angus-mail"                               => { org => "org.eclipse.angus", name => "angus-mail", rev => "2.1.0-M1" },
-    "joda-time"                                => { org => "joda-time", name => "joda-time", rev => "2.14.2" },
-    "jaxen"                                    => { org => "jaxen", name => "jaxen", rev => "2.0.6" },
-    # <!-- Logging -->
-    "log4j-api"                                => { org => "org.apache.logging.log4j", name => "log4j-api", rev => "2.26.1" },
-    "log4j-core"                               => { org => "org.apache.logging.log4j", name => "log4j-core", rev => "2.26.1" },
-    "log4j-slf4j2-impl"                        => { org => "org.apache.logging.log4j", name => "log4j-slf4j2-impl", rev => "2.26.1" },
-    "log4j-jakarta-smtp"                       => { org => "org.apache.logging.log4j", name => "log4j-jakarta-smtp", rev => "2.26.1" },
-    "jcl-over-slf4j"                           => { org => "org.slf4j", name => "jcl-over-slf4j", rev => "2.0.18" },
-    "slf4j-api"                                => { org => "org.slf4j", name => "slf4j-api", rev => "2.0.18" },
-    # <!-- UNIT TESTS -->
-    "junit"                                    => { org => "junit", name => "junit", rev => "4.13.2", conf => "compile->default" },
-    "easymock"                                 => { org => "org.easymock", name => "easymock", rev => "5.6.0", conf => "compile->default" },
-    "mockito-core"                             => { org => "org.mockito", name => "mockito-core", rev => "5.23.0", conf => "compile->default" },
-    # <!-- WEB RUNTIME -->
-    "encoder-jakarta-jsp"                      => { org => "org.owasp.encoder", name => "encoder-jakarta-jsp", rev => "1.4.0" },
-    "sitemesh"                                 => { org => "opensymphony", name => "sitemesh", rev => "2.7.0-M1" },
-    # <!-- WEB COMPILE -->
-    "jakarta.servlet-api"                      => { org => "jakarta.servlet", name => "jakarta.servlet-api", rev => "6.0.0", conf => 'compile->default' },
-    "jakarta.servlet.jsp-api"                  => { org => "jakarta.servlet.jsp", name => "jakarta.servlet.jsp-api", rev => "4.0.0", conf => 'compile->default' },
-    "jakarta.servlet.jsp.jstl"                 => { org => "org.glassfish.web", name => "jakarta.servlet.jsp.jstl", rev => "3.0.1" },
-    "jakarta.servlet.jsp.jstl-api"             => { org => "jakarta.servlet.jsp.jstl", name => "jakarta.servlet.jsp.jstl-api", rev => "3.0.2" },
-    "lombok"                                   => { org => "org.projectlombok", name => "lombok", rev => "1.18.46" },
-    "jakarta.annotation-api"                   => { org => "jakarta.annotation", name => "jakarta.annotation-api", rev => "3.0.0" },
-    "byte-buddy-agent"                         => { org => "net.bytebuddy", name => "byte-buddy-agent", rev => "1.17.7", conf => "compile->default" },
-    # <!-- Hibernate -->
-    "hibernate-validator"                      => { org => "org.hibernate.validator", name => "hibernate-validator", rev => "8.0.0.Final" },
-    "hibernate-validator-annotation-processor" => { org => "org.hibernate.validator", name => "hibernate-validator-annotation-processor", rev => "8.0.0.Final" },
-    "dom4j"                                    => { org => "org.dom4j", name => "dom4j", rev => "2.2.0" },
-    "byte-buddy"                               => { org => "net.bytebuddy", name => "byte-buddy", rev => "1.17.7" },
-    "jakarta.persistence-api"                  => { org => "jakarta.persistence", name => "jakarta.persistence-api", rev => "3.2.0" },
-    "jakarta.transaction-api"                  => { org => "jakarta.transaction", name => "jakarta.transaction-api", rev => "2.0.1" },
-    # <!-- CAS for SSO - ONLY FOR ATLAS APPS -->
-    "cas-client-core"                          => { org => "org.apereo.cas.client", name => "cas-client-core", rev => "4.0.4" },
-    "nimbus-jose-jwt"                          => { org => "com.nimbusds", name => "nimbus-jose-jwt", rev => "10.9.1" },
-    # <!-- Other -->
-    "poi"                                      => { org => "org.apache.poi", name => "poi", rev => "5.4.1" },
-    "poi-ooxml"                                => { org => "org.apache.poi", name => "poi-ooxml", rev => "5.4.1" },
-    "tika-core"                                => { org => "org.apache.tika", name => "tika-core", rev => "3.3.1" },
-    "tika-parsers-standard-package"            => { org => "org.apache.tika", name => "tika-parsers-standard-package", rev => "3.3.1" },
-    "tika-parser-sqlite3-package"              => { org => "org.apache.tika", name => "tika-parser-sqlite3-package", rev => "3.3.1" },
-
-    # OTHER OTHER
-    "jackson-annotations"                      => { org => "com.fasterxml.jackson.core", name => "jackson-annotations", rev => "2.22" },
-    "jackson-core"                             => { org => "com.fasterxml.jackson.core", name => "jackson-core", rev => "2.22.1" },
-    "jackson-databind"                         => { org => "com.fasterxml.jackson.core", name => "jackson-databind", rev => "2.22.1" },
-    "jackson-datatype-jsr310"                  => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-jsr310", rev => "2.22.1" },
-    "jackson-datatype-json-org"                => { org => "com.fasterxml.jackson.datatype", name => "jackson-datatype-json-org", rev => "2.22.1" },
-    "itextpdf"                                 => { org => "com.itextpdf", name => "itextpdf", rev => "5.5.13.5" },
-    "itext-pdfa"                               => { org => "com.itextpdf", name => "itext-pdfa", rev => "5.5.13.5" },
-    "itext-xtra"                               => { org => "com.itextpdf", name => "itext-xtra", rev => "5.5.13.5" },
-    "commons-codec"                            => { org => "commons-codec", name => "commons-codec", rev => "1.22.0" },
-    "jakarta.xml.soap-api"                     => { org => "jakarta.xml.soap", name => "jakarta.xml.soap-api", rev => "3.0.2" },
-    "jakarta.xml.ws-api"                       => { org => "jakarta.xml.ws", name => "jakarta.xml.ws-api", rev => "4.0.3" },
-    "jakarta.xml.bind-api"                     => { org => "jakarta.xml.bind", name => "jakarta.xml.bind-api", rev => "4.0.5" },
-    "commons-fileupload2-jakarta-servlet6"     => { org => "org.apache.commons", name => "commons-fileupload2-jakarta-servlet6", rev => "2.0.0-M5" },
-    "httpclient5"                              => { org => "org.apache.httpcomponents.client5", name => "httpclient5", rev => "5.6.2" },
-    "httpclient5-cache"                        => { org => "org.apache.httpcomponents.client5", name => "httpclient5-cache", rev => "5.6" },
-    "xmlbeans"                                 => { org => "org.apache.xmlbeans", name => "xmlbeans", rev => "3.0.0" },
-    "hibernate-commons-annotations"            => { org => "org.hibernate.common", name => "hibernate-commons-annotations", rev => "5.1.1.Final" },
-    "encoder"                                  => { org => "org.owasp.encoder", name => "encoder", rev => "1.3.1" },
-    "slf4j-log4j12"                            => { org => "org.slf4j", name => "slf4j-log4j12", rev => "1.7.34" },
-    "slf4j-reload4j"                           => { org => "org.slf4j", name => "slf4j-reload4j", rev => "2.0.1" },
-    "jakarta.validation-api"                   => { org => "jakarta.validation", name => "jakarta.validation-api", rev => "3.1.1" },
-    "esapi"                                    => { org => "org.owasp.esapi", name => "esapi", rev => "2.7.0.0" },
-
-    # current versions just to help convert old build.xml projects to ivy.xml
-    "jsch"                                     => { org => "com.jcraft", name => "jsch", rev => "0.1.54" },
-
-    # ehcache
-    "cache-api"                                => { org => "javax.cache", name => "cache-api", rev => "1.1.1" },
-    "ehcache"                                  => { org => "org.ehcache", name => "ehcache", rev => "3.12.0" },
-    "jaxb-runtime"                             => { org => "org.glassfish.jaxb", name => "jaxb-runtime", rev => "4.0.9" },
-
-    "ignite-core"                              => { org => "org.apache.ignite", name => "ignite-core", rev => "2.18.0" },
-    "ignite-spring"                            => { org => "org.apache.ignite", name => "ignite-spring", rev => "2.18.0" },
-    "ignite-indexing"                          => { org => "org.apache.ignite", name => "ignite-indexing", rev => "2.18.0" },
-    "ignite-log4j2"                            => { org => "org.apache.ignite", name => "ignite-log4j2", rev => "2.18.0" },
-    "ignite-slf4j"                             => { org => "org.apache.ignite", name => "ignite-slf4j", rev => "2.18.0" },
-};
+my $update = load_update_data();
 
 if ($hibernate5) {
+    # Override revisions for Hibernate 5.x dependencies
     $update->{"hibernate-core-jakarta"} = { org => "org.hibernate", name => "hibernate-core-jakarta", rev => "5.6.15.Final" };
     $update->{"hibernate-jpamodelgen"} = { org => "org.hibernate", name => "hibernate-jpamodelgen", rev => "5.6.15.Final" };
-    push @remove_packages, "hibernate-community-dialects";
-}
-else {
-    $update->{"hibernate-core"} = { org => "org.hibernate.orm", name => "hibernate-core", rev => "6.6.54.Final" };
-    $update->{"hibernate-jpamodelgen"} = { org => "org.hibernate.orm", name => "hibernate-jpamodelgen", rev => "6.6.54.Final" };
-    $update->{"hibernate-community-dialects"} = { org => "org.hibernate.orm", name => "hibernate-community-dialects", rev => "6.6.54.Final" };
-}
 
-# replaced packages
-$update->{"commons-lang"} = $update->{"commons-lang3"};
-$update->{"commons-dbcp"} = $update->{"commons-dbcp2"};
-$update->{"commons-collections"} = $update->{"commons-collections4"};
-$update->{"commons-fileupload"} = $update->{"commons-fileupload2-jakarta-servlet6"};
-$update->{"encoder-jsp"} = $update->{"encoder-jakarta-jsp"};
-if ($hibernate5) {
+    # cleanup and replace
     $update->{"hibernate-core"} = $update->{"hibernate-core-jakarta"};
+    push @remove_packages, "hibernate-community-dialects";
 }
 else {
     $update->{"hibernate-core-jakarta"} = $update->{"hibernate-core"};
 }
-$update->{"httpclient"} = $update->{"httpclient5"};
-$update->{"httpclient-cache"} = $update->{"httpclient5-cache"};
-$update->{"javax.annotation-api"} = $update->{"jakarta.annotation-api"};
-$update->{"javax.servlet-api"} = $update->{"jakarta.servlet-api"};
-$update->{"javax.servlet.jsp-api"} = $update->{"jakarta.servlet.jsp-api"};
-$update->{"jsp-api"} = $update->{"jakarta.servlet.jsp-api"};
-$update->{"mockito-all"} = $update->{"mockito-core"};
-$update->{"log4j"} = $update->{"log4j-core"};
-$update->{"log4j-slf4j-impl"} = $update->{"log4j-slf4j2-impl"};
-$update->{"mail"} = $update->{"angus-mail"};
-$update->{"javax.mail-api"} = $update->{"angus-mail"};
-$update->{"jakarta.mail-api"} = $update->{"angus-mail"};
-$update->{"javax.mail"} = $update->{"angus-mail"};
-$update->{"displaytag-portlet"} = $update->{"displaytag"};
-$update->{"javax.xml.soap-api"} = $update->{"jakarta.xml.soap-api"};
-$update->{"validation-api"} = $update->{"jakarta.validation-api"};
-$update->{"jstl"} = $update->{"jakarta.servlet.jsp.jstl"};
-$update->{"db2jcc"} = $update->{"jcc"};
-$update->{"db2jcc4"} = $update->{"jcc"};
-$update->{"jta"} = $update->{"jakarta.transaction-api"};
-$update->{"jaxws-api"} = $update->{"jakarta.xml.ws-api"};
-$update->{"jaxb-api"} = $update->{"jakarta.xml.bind-api"};
 
 my $add_if_missing = {};
 
@@ -303,8 +157,14 @@ while ($file_content =~ /<dependency\s+(?:[^>]*?\s+)?name="([^"]+)"/g) {
 # Compute exact set of direct dependencies that will SURVIVE this run
 my %surviving_deps;
 for my $dep (keys %present_deps) {
-    # Skip if flagged for removal by audit or package filters
-    next if $audit_deps && $unused_deps_to_drop{$dep};
+    # Keep if 'keep' flag is set in update hash
+    if ($update->{$dep} && $update->{$dep}->{keep}) {
+        $surviving_deps{$dep} = 1;
+        next;
+    }
+
+    # Skip if flagged for removal by unused_deps_to_drop or package filters
+    next if $unused_deps_to_drop{$dep};
     next if grep {$dep =~ $_} @remove_packages;
 
     # Mark as surviving candidate for initial pass
@@ -358,19 +218,19 @@ $file_content =~ s{
         log_warning("Keep $dep_name");
         $replacement_str = $leading_whitespace . $dependency_block;
     }
-    elsif (should_remove_transitive($dep_name, $current_rev, \%present_deps, $update, \%used_deps_to_keep)) {
+    elsif (should_remove_transitive($dep_name, $current_rev, \%present_deps, $update, \%used_deps_to_keep, \%surviving_deps)) {
         if ($audit_deps && $used_deps_to_keep{$dep_name}) {
-            log_warning("Keep direct dependency $dep_name (Transitive, but direct usage detected in code)");
+            # log_warning("Keep direct dependency $dep_name (Transitive, but direct usage detected in code)");
             $replacement_str = $leading_whitespace . $dependency_block;
         }
         else {
             log_info("Remove redundant transitive $dep_name (rev '$current_rev' is <= required override version)");
         }
     }
-    elsif (grep {$dep_name =~ $_} @remove_packages) {
+    elsif (grep {$dep_name =~ $_} @remove_packages && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
         log_info("Remove $dep_name");
     }
-    elsif ($audit_deps && $unused_deps_to_drop{$dep_name}) {
+    elsif ($unused_deps_to_drop{$dep_name} && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
         log_info("Remove unused dependency $dep_name (no active imports in src/)");
         # Format the comment to match current indentation
         #        my $indent = $leading_whitespace;
@@ -403,6 +263,7 @@ $file_content =~ s{
 
             if (!$should_keep_rev) {
                 foreach my $key (keys %$update_entry_ref) {
+                    next if $key eq "keep";
                     my $new_val = $update_entry_ref->{$key};
                     $new_val = $current_rev if $key eq 'rev' && $should_keep_rev;
 
@@ -547,20 +408,75 @@ sub version_compare {
     return 0;
 }
 
+sub is_dep_used {
+    my ($dep_name, $update_ref, $used_deps_ref) = @_;
+    return 0 unless defined $dep_name && defined $used_deps_ref && %$used_deps_ref;
+
+    return 1 if exists $used_deps_ref->{$dep_name};
+
+    my $entry = $update_ref->{$dep_name} if $update_ref;
+    my $org = $entry->{org} if $entry;
+    my $name = ($entry && $entry->{name}) ? $entry->{name} : $dep_name;
+
+    my @patterns;
+    if (defined $org) {
+        push @patterns, quotemeta($org);
+        my $base_org = $org;
+        if ($base_org =~ s/\.(orm|core|client5|data|v2)$//i) {
+            push @patterns, quotemeta($base_org);
+        }
+    }
+
+    my $clean_name = $name;
+    $clean_name =~ s/^(spring|commons|jakarta|javax|log4j|slf4j|jackson|hibernate|itext|tika)-//i;
+
+    if (defined $org && $clean_name ne '') {
+        my $sub_pkg = "$org.$clean_name";
+        push @patterns, quotemeta($sub_pkg);
+        if ($org =~ /^(.*?)\.[^\.]+$/) {
+            push @patterns, quotemeta("$1.$clean_name");
+        }
+    }
+
+    my $dot_name = $name;
+    $dot_name =~ s/[-_]/\\./g;
+    push @patterns, $dot_name;
+
+    my $raw_name = $name;
+    $raw_name =~ s/[-_]//g;
+    push @patterns, quotemeta($raw_name) if length($raw_name) > 3;
+
+    for my $ref_pkg (keys %$used_deps_ref) {
+        for my $pat (@patterns) {
+            if ($ref_pkg =~ /^$pat\b/i || $ref_pkg =~ /\b$pat\b/i) {
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
 sub should_remove_transitive {
     my ($dep_name, $current_rev, $present_deps_ref, $update_ref, $used_deps_ref, $surviving_deps_ref) = @_;
     return 0 unless defined $current_rev;
     return 0 unless defined $remove_redundant_transitives_versioned
         && ref($remove_redundant_transitives_versioned) eq 'HASH';
 
-    # 1. Direct code usage in src/ -> KEEP
-    if ($used_deps_ref && exists $used_deps_ref->{$dep_name}) {
-        log_info("Keep direct dependency $dep_name (Direct usage detected in src/)");
+    # Guardrail: Keep if 'keep' flag is set in update hash
+    if ($update_ref && exists $update_ref->{$dep_name} && $update_ref->{$dep_name}->{keep}) {
+        # log_info("Keep dependency $dep_name ('keep' flag specified in update hash)");
+        return 0;
+    }
+
+    # 1. Direct code usage in src/, test/, or ../mgic_*/src -> KEEP
+    if ($used_deps_ref && is_dep_used($dep_name, $update_ref, $used_deps_ref)) {
+        # log_info("Keep direct dependency $dep_name (Direct usage detected in source code)");
         return 0;
     }
 
     for my $parent_pkg (keys %$remove_redundant_transitives_versioned) {
-        if (exists $surviving_deps_ref->{$parent_pkg}) {
+        if ($surviving_deps_ref && exists $surviving_deps_ref->{$parent_pkg}) {
             my $targets = $remove_redundant_transitives_versioned->{$parent_pkg};
 
             if (exists $targets->{$dep_name}) {
@@ -598,7 +514,7 @@ sub update_deps_file {
     my $ivy_mtime = (-e $ivy_file) ? (stat($ivy_file))->mtime : 0;
 
     if ($deps_mtime > 0 && $deps_mtime > $ivy_mtime) {
-        print "INFO: $deps_file is up to date relative to $ivy_file. Skipping ant execution.\n";
+        log_info("$deps_file is up to date relative to $ivy_file. Skipping ant execution.\n");
         return;
     }
 
@@ -670,82 +586,62 @@ sub extract_all_referenced_packages {
     my @src_dirs = ref($src_dirs_ref) eq 'ARRAY' ? @{$src_dirs_ref} : ($src_dirs_ref);
     @src_dirs = grep {-d $_} @src_dirs;
 
-    log_info("Scanning source directories (" . join(', ', @src_dirs) . ") and webapp...");
+    my @local_dirs = grep {$_ !~ m{^\.\./}} @src_dirs;
+    my @mgic_dirs = grep {$_ =~ m{^\.\./}} @src_dirs;
 
-    my $register = sub {
+    log_info("Scanning local source directories (" . join(', ', @local_dirs) . ")...");
+
+    my %local_references;
+
+    my $register_local = sub {
         my ($raw) = @_;
         return unless defined $raw;
         $raw =~ s#[\r\n\s]+##g;
 
-        # Strict check: MUST be a dot-separated Java FQCN/package with at least 2 dots
-        # e.g., 'com.ibm.db2' or 'org.hibernate.dialect.DB2Dialect'
         return unless $raw =~ /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_\.]+/;
-
-        # Filter out common false-positive non-Java patterns
         return if $raw =~ /^(http|https|ftp|mailto|www|com\.sun|org\.w3c\.dom)/i;
         return if $raw =~ /\.(xsd|xml|html|jsp|properties|png|jpg|gif|css|js)$/i;
 
-        # 1. Register full raw reference
-        $referenced_packages{$raw} = 1;
-
-        # 2. Extract parent package if a capitalized ClassName is at the end
-        # e.g., 'com.ibm.db2.jcc.DB2Driver' -> 'com.ibm.db2.jcc'
+        $local_references{$raw} = 1;
         my $pkg = $raw;
         if ($pkg =~ s#\.[A-Z][a-zA-Z0-9_]*$##) {
-            $referenced_packages{$pkg} = 1;
+            $local_references{$pkg} = 1;
         }
     };
 
-    # 1. Scan ALL provided source directories
-    if (@src_dirs) {
+    # 1. Scan Local Directories (src, test)
+    if (@local_dirs) {
         find({
             wanted   => sub {
                 my $file = $File::Find::name;
                 return unless -f $file && $file =~ /\.(java|xml|properties|factories)$/i;
                 open(my $fh, '<', $file) or return;
                 while (my $line = <$fh>) {
-                    # Standard & Static Java Imports
                     if ($line =~ /^\s*import\s+(?:static\s+)?([a-zA-Z0-9_\.\*]+)\s*;\s*$/) {
                         my $imp = $1;
-                        if ($imp =~ /\*$/) {
-                            $imp =~ s#\.\*$##;
-                            $register->($imp);
-                        }
-                        else {
-                            $register->($imp);
-                        }
+                        $imp =~ s#\.\*$##;
+                        $register_local->($imp);
                     }
-
-                    # 1. Reflection Calls: Class.forName("..."), loadClass("...")
                     while ($line =~ /(?:Class\.forName|loadClass)\s*\(\s*"([a-zA-Z0-9_\.]+)"\s*\)/g) {
-                        $register->($1);
+                        $register_local->($1);
                     }
-
-                    # 1.5 Class Literals (e.g., com.ibm.db2.jcc.DB2Driver.class or .class.getName())
                     while ($line =~ /([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)\.class\b/g) {
-                        $register->($1);
+                        $register_local->($1);
                     }
-
-                    # 2. Specific Class/Driver XML attributes (EXCLUDING generic name="")
                     while ($line =~ /(?:driverClassName|dialect|class|type|factory-method)="([a-zA-Z0-9_\.]+)"/g) {
-                        $register->($1);
+                        $register_local->($1);
                     }
-
-                    # 3. Log4j <Logger name="org.hibernate..."> specifically
                     while ($line =~ /<Logger\s+[^>]*?name="([a-zA-Z0-9_\.]+)"/g) {
-                        $register->($1);
+                        $register_local->($1);
                     }
-
-                    # 4. Quoted FQCN Literals in Java code, XML values, or properties
-                    # Must contain at least TWO dots to avoid matching single package/bean names
                     while ($line =~ /"([a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_\.]+)"/g) {
-                        $register->($1);
+                        $register_local->($1);
                     }
                 }
                 close($fh);
             },
             no_chdir => 1
-        }, @src_dirs);
+        }, @local_dirs);
     }
 
     # 2. Scan webapp_dir ONLY for web/presentation assets
@@ -757,12 +653,12 @@ sub extract_all_referenced_packages {
                 open(my $fh, '<', $file) or return;
                 while (my $line = <$fh>) {
                     while ($line =~ /(?:class|type|value|driverClassName|dialect)="([a-zA-Z0-9_\.]+)"/g) {
-                        $register->($1);
+                        $register_local->($1);
                     }
                     if ($line =~ /%@\s*page\s+.*?import="([^"]+)"/) {
                         for my $imp (split /\s*,\s*/, $1) {
                             $imp =~ s#\.\*$##;
-                            $register->($imp);
+                            $register_local->($imp);
                         }
                     }
                 }
@@ -772,7 +668,113 @@ sub extract_all_referenced_packages {
         }, $webapp_dir);
     }
 
-    log_success("Extracted " . (scalar keys %referenced_packages) . " unique package/class references.");
+    %referenced_packages = %local_references;
+
+    # 3. Scan Mgic External Directories with Reachability Propagation
+    if (@mgic_dirs) {
+        log_info("Scanning external mgic directories (" . join(', ', @mgic_dirs) . ") for reachability...");
+
+        my %mgic_class_imports; # FQCN -> { pkg => '...', imports => [...] }
+
+        find({
+            wanted   => sub {
+                my $file = $File::Find::name;
+                return unless -f $file && $file =~ /\.java$/i;
+
+                open(my $fh, '<', $file) or return;
+                my $pkg_decl = '';
+                my $class_name = '';
+                my @file_imports;
+
+                while (my $line = <$fh>) {
+                    if ($line =~ /^\s*package\s+([a-zA-Z0-9_\.]+)\s*;\s*$/) {
+                        $pkg_decl = $1;
+                    }
+                    elsif ($line =~ /\b(?:public\s+|protected\s+)?(?:class|interface|enum|record)\s+([a-zA-Z0-9_]+)/) {
+                        $class_name = $1 unless $class_name;
+                    }
+
+                    if ($line =~ /^\s*import\s+(?:static\s+)?([a-zA-Z0-9_\.\*]+)\s*;\s*$/) {
+                        my $imp = $1;
+                        $imp =~ s#\.\*$##;
+                        push @file_imports, $imp;
+                    }
+                    while ($line =~ /(?:Class\.forName|loadClass)\s*\(\s*"([a-zA-Z0-9_\.]+)"\s*\)/g) {
+                        push @file_imports, $1;
+                    }
+                    while ($line =~ /([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)\.class\b/g) {
+                        push @file_imports, $1;
+                    }
+                    while ($line =~ /"([a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_\.]+)"/g) {
+                        push @file_imports, $1;
+                    }
+                }
+                close($fh);
+
+                if ($pkg_decl && $class_name) {
+                    my $fqcn = "$pkg_decl.$class_name";
+                    $mgic_class_imports{$fqcn} = {
+                        pkg     => $pkg_decl,
+                        imports => \@file_imports
+                    };
+                }
+            },
+            no_chdir => 1
+        }, @mgic_dirs);
+
+        my $is_class_imported = sub {
+            my ($fqcn, $pkg_decl, $ref_keys) = @_;
+            return 1 if exists $ref_keys->{$fqcn};
+            return 1 if exists $ref_keys->{$pkg_decl};
+            for my $ref (keys %$ref_keys) {
+                if ($fqcn eq $ref || $fqcn =~ /^\Q$ref\E\./) {
+                    return 1;
+                }
+            }
+            return 0;
+        };
+
+        # Level 1: Mgic classes directly imported in local folders (src, test)
+        my %reachable_level1;
+        my %level1_imports;
+
+        for my $fqcn (keys %mgic_class_imports) {
+            my $info = $mgic_class_imports{$fqcn};
+            if ($is_class_imported->($fqcn, $info->{pkg}, \%local_references)) {
+                $reachable_level1{$fqcn} = 1;
+                for my $imp (@{$info->{imports}}) {
+                    $level1_imports{$imp} = 1;
+                    my $p = $imp;
+                    $level1_imports{$p} = 1 if $p =~ s#\.[A-Z][a-zA-Z0-9_]*$##;
+                }
+            }
+        }
+
+        # Level 2: Mgic classes directly imported by Level 1 classes
+        my %reachable_level2;
+        my %level2_imports;
+
+        for my $fqcn (keys %mgic_class_imports) {
+            next if $reachable_level1{$fqcn};
+            my $info = $mgic_class_imports{$fqcn};
+            if ($is_class_imported->($fqcn, $info->{pkg}, \%level1_imports)) {
+                $reachable_level2{$fqcn} = 1;
+                for my $imp (@{$info->{imports}}) {
+                    $level2_imports{$imp} = 1;
+                    my $p = $imp;
+                    $level2_imports{$p} = 1 if $p =~ s#\.[A-Z][a-zA-Z0-9_]*$##;
+                }
+            }
+        }
+
+        for my $imp (keys %level1_imports, keys %level2_imports) {
+            $referenced_packages{$imp} = 1;
+        }
+
+        log_info("Reachable mgic classes: " . (scalar keys %reachable_level1) . " (Direct local), " . (scalar keys %reachable_level2) . " (1-hop indirect)");
+    }
+
+    log_success("Extracted " . (scalar keys %referenced_packages) . " active package/class references.");
     return %referenced_packages;
 }
 
@@ -808,19 +810,13 @@ sub audit_dependencies {
     for my $class (keys %class_to_deps) {
         for my $import (keys %{$class_to_deps{$class}}) {
             if ($import =~ /^(?:java|javax)\./) {
-                next; # Skip standard libraries
+                next; # Skip standard Java RI libraries
             }
-
-            if ($class =~ m{^\.\./}) {
-                $unused_deps{$import} = 1;
-            }
-            else {
-                $used_deps{$import} = 1;
-            }
+            $used_deps{$import} = 1;
         }
     }
 
-    return ($dependencies, {}); # Replace with actual return values
+    return (\%unused_deps, \%used_deps);
 }
 
 sub filter_dependencies {
@@ -1220,6 +1216,44 @@ sub log_file_check {
     else {
         log_warning("File does not exist: $file_path");
     }
+}
+
+sub load_update_data {
+    my $script_dir = dirname(abs_path($0));
+    my $update_hash_file = "$script_dir/revision-updates.txt";
+    my $hash = {};
+
+    if (-e $update_hash_file) {
+        open my $fh, '<', $update_hash_file or die "Cannot open $update_hash_file: $!";
+        while (my $line = <$fh>) {
+            $line =~ s/[\r\n]*//g;
+            $line =~ s/\s*#.*$//; # remove comments
+
+            next if $line =~ /^\s*$/ || $line =~ /^key,/; # Skip empty lines and header
+
+            if ($line =~ /=>/) {
+                # convert old dependency to new dependency format (e.g., "old => new")
+                my ($old, $new) = split /\s*=>\s*/, $line;
+                log_warning("missing key: $new") unless exists $hash->{$new};
+                $hash->{$old} = $hash->{$new};
+            }
+            else {
+                my @fields = split /[:,]\s*/, $line;
+                my $key = shift @fields;
+                for my $field (@fields) {
+                    my ($attribute, $value) = split /=/, $field, 2;
+                    log_warning("mismatched key: $key <=> $value") if $attribute eq 'name' && $value ne $key;
+                    $hash->{$key}{$attribute} = $value;
+                }
+            }
+        }
+        close $fh;
+    }
+    else {
+        die "Update hash file $update_hash_file not found!";
+    }
+
+    $hash;
 }
 
 __END__

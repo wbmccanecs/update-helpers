@@ -1,0 +1,156 @@
+# Update Hash Data
+
+# Spring
+spring-core: org=org.springframework, name=spring-core, rev=6.2.19
+spring-beans: org=org.springframework, name=spring-beans, rev=6.2.19
+spring-context: org=org.springframework, name=spring-context, rev=6.2.19, keep=1
+spring-context-support: org=org.springframework, name=spring-context-support, rev=6.2.19
+spring-expression: org=org.springframework, name=spring-expression, rev=6.2.19
+spring-jms: org=org.springframework, name=spring-jms, rev=6.2.19
+spring-messaging: org=org.springframework, name=spring-messaging, rev=6.2.19
+spring-test: org=org.springframework, name=spring-test, rev=6.2.19
+spring-tx: org=org.springframework, name=spring-tx, rev=6.2.19
+spring-data-jpa: org=org.springframework.data, name=spring-data-jpa, rev=3.5.12
+spring-web: org=org.springframework, name=spring-web, rev=6.2.19
+spring-webmvc: org=org.springframework, name=spring-webmvc, rev=6.2.19
+spring-websocket: org=org.springframework, name=spring-websocket, rev=6.2.19
+spring-aop: org=org.springframework, name=spring-aop, rev=6.2.19
+spring-aspects: org=org.springframework, name=spring-aspects, rev=6.2.19
+spring-security-core: org=org.springframework.security, name=spring-security-core, rev=6.5.4
+spring-security-crypto: org=org.springframework.security, name=spring-security-crypto, rev=6.5.4
+spring-security-web: org=org.springframework.security, name=spring-security-web, rev=6.5.4
+spring-security-config: org=org.springframework.security, name=spring-security-config, rev=6.5.4
+spring-security-oauth2-resource-server: org=org.springframework.security, name=spring-security-oauth2-resource-server, rev=6.5.4
+spring-security-test: org=org.springframework.security, name=spring-security-test, rev=6.5.4
+spring-security-oauth2-jose: org=org.springframework.security, name=spring-security-oauth2-jose, rev=6.5.4
+spring-boot-autoconfigure: org=org.springframework.boot, name=spring-boot-autoconfigure, rev=3.5.14
+
+# Miscellaneous
+jcc: org=com.ibm.db2, name=jcc, rev=11.5.9.0
+ojdbc8: org=com.oracle.database.jdbc, name=ojdbc8, rev=23.26.2.0.0
+displaytag: org=com.github.hazendaz, name=displaytag, rev=3.8.0
+fop: org=org.apache.xmlgraphics, name=fop, rev=2.10
+commons-collections4: org=org.apache.commons, name=commons-collections4, rev=4.5.0
+commons-lang3: org=org.apache.commons, name=commons-lang3, rev=3.20.0
+commons-text: org=org.apache.commons, name=commons-text, rev=1.15.0
+commons-beanutils: org=commons-beanutils, name=commons-beanutils, rev=1.11.0
+commons-dbcp2: org=org.apache.commons, name=commons-dbcp2, rev=2.14.0
+commons-io: org=commons-io, name=commons-io, rev=2.22.0
+angus-mail: org=org.eclipse.angus, name=angus-mail, rev=2.1.0-M1
+joda-time: org=joda-time, name=joda-time, rev=2.14.2
+jaxen: org=jaxen, name=jaxen, rev=2.0.6
+
+# Logging
+log4j-api: org=org.apache.logging.log4j, name=log4j-api, rev=2.26.1
+log4j-core: org=org.apache.logging.log4j, name=log4j-core, rev=2.26.1
+log4j-slf4j2-impl: org=org.apache.logging.log4j, name=log4j-slf4j2-impl, rev=2.26.1
+log4j-jakarta-smtp: org=org.apache.logging.log4j, name=log4j-jakarta-smtp, rev=2.26.1
+jcl-over-slf4j: org=org.slf4j, name=jcl-over-slf4j, rev=2.0.18
+slf4j-api: org=org.slf4j, name=slf4j-api, rev=2.0.18
+
+# Unit Tests
+junit: org=junit, name=junit, rev=4.13.2, conf=compile->default
+mockito-core: org=org.mockito, name=mockito-core, rev=5.23.0, conf=compile->default
+
+# Web Runtime
+encoder-jakarta-jsp: org=org.owasp.encoder, name=encoder-jakarta-jsp, rev=1.4.0
+sitemesh: org=opensymphony, name=sitemesh, rev=2.7.0-M1
+
+# WEB COMPILE
+jakarta.servlet-api: org=jakarta.servlet, name=jakarta.servlet-api, rev=6.0.0, conf=compile->default
+jakarta.servlet.jsp-api: org=jakarta.servlet.jsp, name=jakarta.servlet.jsp-api, rev=4.0.0, conf=compile->default
+jakarta.servlet.jsp.jstl: org=org.glassfish.web, name=jakarta.servlet.jsp.jstl, rev=3.0.1
+jakarta.servlet.jsp.jstl-api: org=jakarta.servlet.jsp.jstl, name=jakarta.servlet.jsp.jstl-api, rev=3.0.2
+lombok: org=org.projectlombok, name=lombok, rev=1.18.46
+jakarta.annotation-api: org=jakarta.annotation, name=jakarta.annotation-api, rev=3.0.0
+byte-buddy-agent: org=net.bytebuddy, name=byte-buddy-agent, rev=1.17.7, conf=compile->default
+
+# Hibernate - assume hibernate 6
+hibernate-core: org=org.hibernate.orm, name=hibernate-core, rev=6.6.54.Final
+hibernate-jpamodelgen: org=org.hibernate.orm, name=hibernate-jpamodelgen, rev=6.6.54.Final
+hibernate-community-dialects: org=org.hibernate.orm, name=hibernate-community-dialects, rev=6.6.54.Final
+hibernate-validator: org=org.hibernate.validator, name=hibernate-validator, rev=8.0.0.Final
+hibernate-validator-annotation-processor: org=org.hibernate.validator, name=hibernate-validator-annotation-processor, rev=8.0.0.Final
+dom4j: org=org.dom4j, name=dom4j, rev=2.2.0
+byte-buddy: org=net.bytebuddy, name=byte-buddy, rev=1.17.7
+jakarta.persistence-api: org=jakarta.persistence, name=jakarta.persistence-api, rev=3.2.0
+jakarta.transaction-api: org=jakarta.transaction, name=jakarta.transaction-api, rev=2.0.1
+
+# CAS for SSO - ONLY FOR ATLAS APPS
+cas-client-core: org=org.apereo.cas.client, name=cas-client-core, rev=4.0.4
+nimbus-jose-jwt: org=com.nimbusds, name=nimbus-jose-jwt, rev=10.9.1
+
+# Other
+poi: org=org.apache.poi, name=poi, rev=5.4.1
+poi-ooxml: org=org.apache.poi, name=poi-ooxml, rev=5.4.1
+tika-core: org=org.apache.tika, name=tika-core, rev=3.3.1
+tika-parsers-standard-package: org=org.apache.tika, name=tika-parsers-standard-package, rev=3.3.1
+tika-parser-sqlite3-package: org=org.apache.tika, name=tika-parser-sqlite3-package, rev=3.3.1
+
+# OTHER OTHER
+jackson-annotations: org=com.fasterxml.jackson.core, name=jackson-annotations, rev=2.22
+jackson-core: org=com.fasterxml.jackson.core, name=jackson-core, rev=2.22.1
+jackson-databind: org=com.fasterxml.jackson.core, name=jackson-databind, rev=2.22.1
+jackson-datatype-jsr310: org=com.fasterxml.jackson.datatype, name=jackson-datatype-jsr310, rev=2.22.1
+jackson-datatype-json-org: org=com.fasterxml.jackson.datatype, name=jackson-datatype-json-org, rev=2.22.1
+itextpdf: org=com.itextpdf, name=itextpdf, rev=5.5.13.5
+itext-pdfa: org=com.itextpdf, name=itext-pdfa, rev=5.5.13.5
+itext-xtra: org=com.itextpdf, name=itext-xtra, rev=5.5.13.5
+commons-codec: org=commons-codec, name=commons-codec, rev=1.22.0
+jakarta.xml.soap-api: org=jakarta.xml.soap, name=jakarta.xml.soap-api, rev=3.0.2
+jakarta.xml.ws-api: org=jakarta.xml.ws, name=jakarta.xml.ws-api, rev=4.0.3
+jakarta.xml.bind-api: org=jakarta.xml.bind, name=jakarta.xml.bind-api, rev=4.0.5
+commons-fileupload2-jakarta-servlet6: org=org.apache.commons, name=commons-fileupload2-jakarta-servlet6, rev=2.0.0-M5
+httpclient5: org=org.apache.httpcomponents.client5, name=httpclient5, rev=5.6.2
+httpclient5-cache: org=org.apache.httpcomponents.client5, name=httpclient5-cache, rev=5.6
+xmlbeans: org=org.apache.xmlbeans, name=xmlbeans, rev=3.0.0
+hibernate-commons-annotations: org=org.hibernate.common, name=hibernate-commons-annotations, rev=5.1.1.Final
+encoder: org=org.owasp.encoder, name=encoder, rev=1.3.1
+slf4j-log4j12: org=org.slf4j, name=slf4j-log4j12, rev=1.7.34
+slf4j-reload4j: org=org.slf4j, name=slf4j-reload4j, rev=2.0.1
+jakarta.validation-api: org=jakarta.validation, name=jakarta.validation-api, rev=3.1.1
+esapi: org=org.owasp.esapi, name=esapi, rev=2.7.0.0
+
+# current versions just to help convert old build.xml projects to ivy.xml
+jsch: org=com.jcraft, name=jsch, rev=0.1.54
+
+# ehcache
+cache-api: org=javax.cache, name=cache-api, rev=1.1.1
+ehcache: org=org.ehcache, name=ehcache, rev=3.12.0
+jaxb-runtime: org=org.glassfish.jaxb, name=jaxb-runtime, rev=4.0.9
+
+# Ignite
+ignite-core: org=org.apache.ignite, name=ignite-core, rev=2.18.0
+ignite-spring: org=org.apache.ignite, name=ignite-spring, rev=2.18.0
+ignite-indexing: org=org.apache.ignite, name=ignite-indexing, rev=2.18.0
+ignite-log4j2: org=org.apache.ignite, name=ignite-log4j2, rev=2.18.0
+ignite-slf4j: org=org.apache.ignite, name=ignite-slf4j, rev=2.18.0
+
+# Replaced Packages
+commons-lang=>commons-lang3
+commons-dbcp=>commons-dbcp2
+commons-collections=>commons-collections4
+commons-fileupload=>commons-fileupload2-jakarta-servlet6
+encoder-jsp=>encoder-jakarta-jsp
+httpclient=>httpclient5
+httpclient-cache=>httpclient5-cache
+javax.annotation-api=>jakarta.annotation-api
+javax.servlet-api=>jakarta.servlet-api
+javax.servlet.jsp-api=>jakarta.servlet.jsp-api
+jsp-api=>jakarta.servlet.jsp-api
+mockito-all=>mockito-core
+log4j=>log4j-core
+log4j-slf4j-impl=>log4j-slf4j2-impl
+mail=>angus-mail
+javax.mail-api=>angus-mail
+jakarta.mail-api=>angus-mail
+javax.mail=>angus-mail
+displaytag-portlet=>displaytag
+javax.xml.soap-api=>jakarta.xml.soap-api
+validation-api=>jakarta.validation-api
+jstl=>jakarta.servlet.jsp.jstl
+db2jcc=>jcc
+db2jcc4=>jcc
+jta=>jakarta.transaction-api
+jaxws-api=>jakarta.xml.ws-api
+jaxb-api=>jakarta.xml.bind-api
