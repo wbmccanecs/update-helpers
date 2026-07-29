@@ -5,6 +5,7 @@ use warnings;
 use File::stat;
 use File::Find;
 use File::Basename;
+use FindBin;
 use Cwd 'abs_path';
 use Term::ANSIColor qw{:constants};
 use version;
@@ -287,6 +288,31 @@ sub main {
         $surviving_deps{$1} = 1;
     }
 
+    # Remove redundant direct dependencies fully satisfied by surviving parents
+    for my $dep_name (keys %surviving_deps) {
+        my $current_rev;
+        if ($file_content =~ /<dependency\b[^>]*?\bname="\Q$dep_name\E"[^>]*?\brev="([^"]+)"/s) {
+            $current_rev = $1;
+        }
+        if (defined $current_rev && should_remove_transitive($dep_name, $current_rev, $update, \%used_deps_to_keep, \%surviving_deps, $remove_redundant_transitives_versioned)) {
+            $file_content =~ s{
+                ^ \s*
+                <dependency\b
+                (?:[^>"']|"[^"]*"|'[^']*')*?
+                \bname="\Q$dep_name\E"
+                (?:[^>"']|"[^"]*"|'[^']*')*?
+                (?:
+                    />
+                    |
+                    >\s*.*?\s*</dependency>
+                )
+                \r?\n?
+            }{}gmsx;
+            delete $surviving_deps{$dep_name};
+            $changes_made += 1;
+        }
+    }
+
     # Pass intact $file_content so is_already_excluded_in_xml accurately checks pre-existing rules
     generate_dynamic_exclusions_from_deps(
         '.deps',
@@ -318,13 +344,14 @@ sub main {
             (
                 />
                 |
-                >\s*(.*?)\s*</dependency>
+                >([ \t]*\r?\n)?(.*?)[ \t]*</dependency>
             )
         }{
             my $indent = $1;
             my $open_tag = $2;
             my $full_close = $3;
-            my $existing_inner = $4 // '';
+            my $has_newline = $4 // '';
+            my $existing_inner = $5 // '';
 
             my $ex_indent = $indent . '    ';
 
@@ -348,6 +375,10 @@ sub main {
                     if ($existing_inner =~ /<exclude\s+[^>]*\borg="\Q$group\E"(?![^>]*\b(?:module|name)=)/i) {
                         $already_present = 1;
                     }
+                    else {
+                        # Remove specific module excludes for this org since org-level exclude subsumes them
+                        $existing_inner =~ s{^[ \t]*<exclude\s+[^>]*\borg="\Q$group\E"[^>]*\/>[ \t]*\r?\n?}{}gm;
+                    }
                 }
                 # Check for module/name-only rule
                 elsif (!defined $group && defined $mod) {
@@ -369,7 +400,7 @@ sub main {
                 }
             }
             else {
-                $&; # Keep block intact if all generated rules are duplicates
+                $&;
             }
         }gmsxe;
     }
@@ -512,14 +543,9 @@ sub should_remove_transitive {
         return 0;
     }
 
-    # 2. Direct code usage in src/, test/, or ../mgic_*/src -> KEEP
-    if ($used_deps_ref && is_dep_used($dep_name, $update_ref, $used_deps_ref)) {
-        return 0;
-    }
-
     my $has_exact_match_parent = 0;
 
-    # 3. Scan ALL surviving parents
+    # 2. Scan ALL surviving parents
     for my $parent_pkg (keys %$remove_redundant_transitives_versioned) {
         if ($surviving_deps_ref && exists $surviving_deps_ref->{$parent_pkg}) {
             my $targets = $remove_redundant_transitives_versioned->{$parent_pkg};
@@ -530,7 +556,16 @@ sub should_remove_transitive {
                 my $target_rev = $update_ref->{$dep_name}->{rev} if defined $update_ref && exists $update_ref->{$dep_name};
                 my $effective_rev = $target_rev || $current_rev;
 
-                my $cmp = version_compare($effective_rev, $transitive_rev);
+                my $parent_target_rev = $update_ref->{$parent_pkg}->{rev} if defined $update_ref && exists $update_ref->{$parent_pkg};
+
+                # If parent and child share the same target revision in $update_ref, they are aligned in lockstep
+                my $cmp;
+                if (defined $target_rev && defined $parent_target_rev && $target_rev eq $parent_target_rev) {
+                    $cmp = 0;
+                }
+                else {
+                    $cmp = version_compare($effective_rev, $transitive_rev);
+                }
 
                 # IF ANY SURVIVING PARENT brings in a mismatched/older version (e.g. ignite-log4j2 brings 2.25.3),
                 # WE MUST KEEP THE DIRECT DEPENDENCY IN PLACE to force version alignment!
@@ -558,18 +593,19 @@ sub update_deps_file {
     my ($ivy_file, $force_update) = @_;
     my $deps_file = '.deps';
     $ivy_file ||= 'ivy.xml';
-    my $ant_cmd = "/c/ant/bin/ant -f my-build.xml show-deps -Divy.file=$ivy_file-clean";
-    my $deps_mtime = (-e $deps_file) ? (stat($deps_file))->mtime : 0;
-    my $ivy_mtime = (-e $ivy_file) ? (stat($ivy_file))->mtime : 0;
-
-    if (!$force_update && $deps_mtime > 0 && $deps_mtime > $ivy_mtime) {
-        log_info("$deps_file is up to date relative to $ivy_file. Skipping ant execution.\n");
-        return;
-    }
+    my $ant_bin = (-e '/c/ant/bin/ant') ? '/c/ant/bin/ant' : 'ant';
+    my $ant_cmd = "$ant_bin -f my-build.xml show-deps -Divy.file=$ivy_file-clean";
 
     log_info("INFO: Generating $deps_file from Ant show-deps target...");
 
-    open(my $ant_fh, "$ant_cmd 2>&1 |") or die "Failed to execute Ant command: $!\n";
+    my $ant_fh;
+    unless (open($ant_fh, "$ant_cmd 2>&1 |")) {
+        if (-e $deps_file) {
+            log_warning("Failed to run Ant command ($!). Re-using existing $deps_file.");
+            return;
+        }
+        die "Failed to execute Ant command: $!\n";
+    }
 
     my @filtered_lines;
 
@@ -585,11 +621,8 @@ sub update_deps_file {
 
             # Match lines with branch connectors (+- or \-)
             if ($content =~ /^(.*?)(?:[\+\\]\-)(.*)$/) {
-                # Match lines with branch connectors (+- or \-)
-                if ($content =~ /^(.*?)(?:[\+\\]\-)(.*)$/) {
-                    # Keep the whole tree so we can map deep transitives
-                    push @filtered_lines, $content . "\n";
-                }
+                # Keep the whole tree so we can map deep transitives
+                push @filtered_lines, $content . "\n";
             }
         }
         elsif ($line =~ /Target "show-deps" does not exist/) {
@@ -971,10 +1004,13 @@ sub generate_dynamic_exclusions_from_deps {
                         $is_mismatched = 1;
                     }
                     # RULE B: Exact module match in update ref / surviving deps with version difference
-                    elsif (exists $update_ref->{$name}) {
+                    elsif (exists $update_ref->{$name} && exists $surviving_deps_ref->{$name}) {
                         my $update_rev = $update_ref->{$name}->{rev};
+                        my $parent_update_rev = $update_ref->{$root_parent}->{rev} if exists $update_ref->{$root_parent};
                         if (defined $update_rev && $update_rev ne $rev) {
-                            $is_mismatched = 1;
+                            if (!defined $parent_update_rev || $parent_update_rev ne $update_rev) {
+                                $is_mismatched = 1;
+                            }
                         }
                     }
                     # RULE C: Direct dependency present without explicit update rule
@@ -1304,7 +1340,7 @@ sub log_file_check {
 }
 
 sub load_update_data {
-    my $script_dir = dirname(abs_path($0));
+    my $script_dir = $FindBin::RealBin;
     my $update_hash_file = "$script_dir/revision-updates.txt";
     my $hash = {};
 
