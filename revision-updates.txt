@@ -126,6 +126,11 @@ ignite-indexing: org=org.apache.ignite, name=ignite-indexing, rev=2.18.0
 ignite-log4j2: org=org.apache.ignite, name=ignite-log4j2, rev=2.18.0
 ignite-slf4j: org=org.apache.ignite, name=ignite-slf4j, rev=2.18.0
 
+# Bouncy Castle - in Tomcat10 from MQ
+bcpkix-jdk15to18: org=org.bouncycastle, name=bcpkix-jdk15to18, rev=1.72
+bcprov-jdk15to18: org=org.bouncycastle, name=bcprov-jdk15to18, rev=1.72
+bcutil-jdk15to18: org=org.bouncycastle, name=bcutil-jdk15to18, rev=1.72
+
 # Replaced Packages
 commons-lang=>commons-lang3
 commons-dbcp=>commons-dbcp2

@@ -60,6 +60,10 @@ sub main {
         log_file_check("$libdir/mgic-persistence.jar");
         push @src_dirs, "../mgic_persistence/src";
     }
+    if (-e "$libdir/esb-common.jar") {
+        log_file_check("$libdir/esb-common.jar");
+        push @src_dirs, "../esb_common/src";
+    }
 
     my %used_deps_to_keep = extract_all_referenced_packages(\@src_dirs, (-d 'war' ? 'war' : undef));
 
@@ -139,8 +143,6 @@ sub main {
         $file_content = <$in>;
     }
     close($in);
-
-    my %parents_with_bc_excludes = detect_parents_with_bouncycastle_excludes($file_content);
 
     # Pre-scan ivy.xml to track direct dependencies
     my %present_deps;
@@ -297,23 +299,6 @@ sub main {
         $file_content
     );
 
-    # Apply bouncycastle org-level exclusions if required
-    for my $parent (keys %parents_with_bc_excludes) {
-        if (exists $surviving_deps{$parent}) {
-            $exclusions->{$parent} ||= [];
-            my $already_has_org_bc = 0;
-            for my $rule (@{$exclusions->{$parent}}) {
-                if ((defined $rule->{org} && $rule->{org} eq 'org.bouncycastle') && !defined $rule->{module}) {
-                    $already_has_org_bc = 1;
-                    last;
-                }
-            }
-            if (!$already_has_org_bc) {
-                push @{$exclusions->{$parent}}, { org => 'org.bouncycastle' };
-            }
-        }
-    }
-
     # ------------------------------------------------------------------
     # STAGE 4: APPEND NEW EXCLUSIONS TO $file_content
     # ------------------------------------------------------------------
@@ -321,59 +306,70 @@ sub main {
         my $dep_exclusions = $exclusions->{$dep_name};
         next unless defined $dep_exclusions && @$dep_exclusions > 0;
 
-        # Append new exclusions cleanly into $file_content
+        # Match the complete <dependency>...</dependency> or <dependency ... /> block
         $file_content =~ s{
             ^ (\s*)
             (
-                <dependency\s+
-                (?:[^"'>]|"[^"]*"|'[^']*')+?
+                <dependency\b
+                (?:[^>"']|"[^"]*"|'[^']*')*?
+                \bname="\Q$dep_name\E"
+                (?:[^>"']|"[^"]*"|'[^']*')*?
             )
             (
-                \s*/>
+                />
                 |
-                \s*>\s*(.*?)\s*</dependency>
+                >\s*(.*?)\s*</dependency>
             )
         }{
             my $indent = $1;
             my $open_tag = $2;
-            my $close_part = $3;
+            my $full_close = $3;
             my $existing_inner = $4 // '';
 
-            if ($open_tag =~ /\bname="\Q$dep_name\E"/) {
-                my $ex_indent = $indent . '    ';
+            my $ex_indent = $indent . '    ';
 
-                # Check for existing exclusions inside this dependency block to avoid duplication
-                my @new_rules;
-                for my $rule (@$dep_exclusions) {
-                    my $mod = $rule->{module};
-                    my $group = $rule->{org};
+            # Deduplicate against pre-existing rules
+            my @new_rules;
+            for my $rule (@$dep_exclusions) {
+                my $mod = $rule->{module};
+                my $group = $rule->{org};
 
-                    my $already_present = 0;
-                    if (defined $mod && $existing_inner =~ /<exclude\s+(?:[^>]*?\s+)?module="\Q$mod\E"/) {
+                my $already_present = 0;
+
+                # Check for existing org + module/name rule
+                if (defined $group && defined $mod) {
+                    if ($existing_inner =~ /<exclude\s+[^>]*\borg="\Q$group\E"[^>]*\b(?:module|name)="\Q$mod\E"/i ||
+                        $existing_inner =~ /<exclude\s+[^>]*\b(?:module|name)="\Q$mod\E"[^>]*\borg="\Q$group\E"/i) {
                         $already_present = 1;
                     }
-                    if (defined $group && !defined $mod && $existing_inner =~ /<exclude\s+(?:[^>]*?\s+)?org="\Q$group\E"/) {
+                }
+                # Check for org-only rule
+                elsif (defined $group && !defined $mod) {
+                    if ($existing_inner =~ /<exclude\s+[^>]*\borg="\Q$group\E"(?![^>]*\b(?:module|name)=)/i) {
                         $already_present = 1;
                     }
-
-                    push @new_rules, $rule unless $already_present;
+                }
+                # Check for module/name-only rule
+                elsif (!defined $group && defined $mod) {
+                    if ($existing_inner =~ /<exclude\s+[^>]*\b(?:module|name)="\Q$mod\E"/i) {
+                        $already_present = 1;
+                    }
                 }
 
-                if (@new_rules) {
-                    my $ex_xml = generate_exclusion_xml(\@new_rules, $ex_indent);
-                    if ($existing_inner ne '') {
-                        "$indent$open_tag>\n$existing_inner\n$ex_xml\n$indent</dependency>";
-                    }
-                    else {
-                        "$indent$open_tag>$ex_xml\n$indent</dependency>";
-                    }
+                push @new_rules, $rule unless $already_present;
+            }
+
+            if (@new_rules) {
+                my $ex_xml = generate_exclusion_xml(\@new_rules, $ex_indent);
+                if ($existing_inner ne '') {
+                    "${indent}${open_tag}>\n${existing_inner}${ex_xml}\n${indent}</dependency>";
                 }
                 else {
-                    $&; # No new exclusions to add
+                    "${indent}${open_tag}>${ex_xml}\n${indent}</dependency>";
                 }
             }
             else {
-                $&;
+                $&; # Keep block intact if all generated rules are duplicates
             }
         }gmsxe;
     }
@@ -942,6 +938,12 @@ sub generate_dynamic_exclusions_from_deps {
     open(my $fh, '<', $deps_file) or return;
 
     my @stack;
+    my %pending_exclusions; # $root_parent -> $org -> { $name => $rev }
+
+    # Orgs that Snyk/security scanners need explicitly excluded at the dependency level
+    my %always_exclude_orgs = (
+        'org.bouncycastle' => 1,
+    );
 
     while (my $line = <$fh>) {
         chomp $line;
@@ -962,80 +964,40 @@ sub generate_dynamic_exclusions_from_deps {
                 if ($depth > 0 && defined $stack[0]) {
                     my $root_parent = $stack[0];
 
-                    # RULE 1: Direct dependency exists in ivy.xml
-                    if (exists $surviving_deps_ref->{$name}) {
-                        if (exists $update_ref->{$name}) {
-                            my $update_entry = $update_ref->{$name};
-                            my $update_rev = $update_entry->{rev};
+                    my $is_mismatched = 0;
 
-                            if (defined $update_rev && $update_rev ne $rev) {
-                                $exclusions_ref->{$root_parent} ||= [];
-                                my $already_excluded = 0;
-                                for my $rule (@{$exclusions_ref->{$root_parent}}) {
-                                    if ((defined $rule->{module} && $rule->{module} eq $name) ||
-                                        (defined $rule->{name} && $rule->{name} eq $name)) {
-                                        $already_excluded = 1;
-                                        last;
-                                    }
-                                }
-                                # ONLY LOG IF NEWLY ADDED
-                                if (!$already_excluded) {
-                                    push @{$exclusions_ref->{$root_parent}}, { module => $name };
-                                    log_info("Generated exclusion for transitive '$name' ($rev) under parent '$root_parent'");
-                                }
-                            }
+                    # RULE A: Explicitly forced org-level exclusions (for Snyk visibility)
+                    if (exists $always_exclude_orgs{$org}) {
+                        $is_mismatched = 1;
+                    }
+                    # RULE B: Exact module match in update ref / surviving deps with version difference
+                    elsif (exists $update_ref->{$name}) {
+                        my $update_rev = $update_ref->{$name}->{rev};
+                        if (defined $update_rev && $update_rev ne $rev) {
+                            $is_mismatched = 1;
                         }
                     }
-                    # RULE 2: Promote to add_if_missing only if not direct
-                    elsif (exists $update_ref->{$name} && exists $surviving_deps_ref->{$root_parent}) {
-                        my $update_entry = $update_ref->{$name};
-                        my $update_rev = $update_entry->{rev};
+                    # RULE C: Direct dependency present without explicit update rule
+                    elsif (exists $surviving_deps_ref->{$name}) {
+                        $is_mismatched = 1;
+                    }
 
-                        if (defined $update_rev && $update_rev ne $rev) {
+                    if ($is_mismatched) {
+                        # Queue for dependency-level exclusion on the root parent
+                        if ($name ne $root_parent) {
+                            $pending_exclusions{$root_parent}{$org}{$name} = $rev;
+                        }
+
+                        # Check for promotion if needed
+                        if (exists $update_ref->{$name} && !exists $surviving_deps_ref->{$name}) {
                             if (defined $globally_add_deps_ref && !exists $globally_add_deps_ref->{$name}) {
                                 $globally_add_deps_ref->{$name} = 1;
                                 if (defined $add_if_missing_ref) {
-                                    if (!exists $add_if_missing_ref->{$root_parent}) {
-                                        $add_if_missing_ref->{$root_parent} = [ $name ];
-                                    }
-                                    elsif (!grep {$_ eq $name} @{$add_if_missing_ref->{$root_parent}}) {
-                                        push @{$add_if_missing_ref->{$root_parent}}, $name;
-                                    }
+                                    $add_if_missing_ref->{$root_parent} ||= [];
+                                    push @{$add_if_missing_ref->{$root_parent}}, $name
+                                        unless grep {$_ eq $name} @{$add_if_missing_ref->{$root_parent}};
                                 }
                             }
-
-                            $exclusions_ref->{$root_parent} ||= [];
-                            my $already_excluded = 0;
-                            for my $rule (@{$exclusions_ref->{$root_parent}}) {
-                                if ((defined $rule->{module} && $rule->{module} eq $name) ||
-                                    (defined $rule->{name} && $rule->{name} eq $name)) {
-                                    $already_excluded = 1;
-                                    last;
-                                }
-                            }
-                            # ONLY LOG IF NEWLY ADDED
-                            if (!$already_excluded) {
-                                push @{$exclusions_ref->{$root_parent}}, { module => $name };
-                                log_info("Generated exclusion for versioned transitive '$name' on parent '$root_parent'");
-                            }
-                        }
-                    }
-
-                    # RULE 3: BouncyCastle org-level exclusions
-                    if ($org eq 'org.bouncycastle' && $name =~ /jdk15on/ && exists $surviving_deps_ref->{$root_parent}) {
-                        $exclusions_ref->{$root_parent} ||= [];
-                        my $already_excluded_bc = 0;
-                        for my $rule (@{$exclusions_ref->{$root_parent}}) {
-                            if ((defined $rule->{org} && $rule->{org} eq 'org.bouncycastle') &&
-                                !defined $rule->{module}) {
-                                $already_excluded_bc = 1;
-                                last;
-                            }
-                        }
-                        # ONLY LOG IF NEWLY ADDED
-                        if (!$already_excluded_bc) {
-                            push @{$exclusions_ref->{$root_parent}}, { org => 'org.bouncycastle' };
-                            log_info("Generated org.bouncycastle exclusion on parent '$root_parent'");
                         }
                     }
                 }
@@ -1043,48 +1005,49 @@ sub generate_dynamic_exclusions_from_deps {
         }
     }
     close($fh);
-}
 
-sub detect_parents_with_bouncycastle_excludes {
-    my ($xml_content) = @_;
-    my %parents;
+    # EVALUATE PENDING EXCLUSIONS AND BUILD XML RULES
+    for my $root_parent (keys %pending_exclusions) {
+        $exclusions_ref->{$root_parent} ||= [];
 
-    # Find all dependency blocks that contain bouncycastle module-specific excludes
-    while ($xml_content =~ /<dependency\s+([^>]*?)(?:>|\/\s*>)((?:(?!<\/dependency>).)*?)<\/dependency>/gms) {
-        my $dep_attrs = $1;
-        my $dep_content = $2;
+        for my $org (keys %{$pending_exclusions{$root_parent}}) {
+            my $modules_ref = $pending_exclusions{$root_parent}{$org};
+            my @modules = keys %$modules_ref;
 
-        my $parent_name;
-        if ($dep_attrs =~ /\bname="([^"]+)"/) {
-            $parent_name = $1;
-        }
+            # If 2+ transitives share the org OR it's a forced org (BouncyCastle), write org-level exclude
+            if (@modules >= 2 || exists $always_exclude_orgs{$org}) {
+                my $already_excluded = 0;
+                for my $rule (@{$exclusions_ref->{$root_parent}}) {
+                    if (defined $rule->{org} && $rule->{org} eq $org && !defined $rule->{module}) {
+                        $already_excluded = 1;
+                        last;
+                    }
+                }
 
-        # Check if this dependency block has any bouncycastle jdk15on module excludes
-        if (defined $parent_name && $dep_content =~ /<exclude\s+[^>]*org="org\.bouncycastle"[^>]*module="[^"]*jdk15on[^"]*"\s*\/>/i) {
-            $parents{$parent_name} = 1;
+                if (!$already_excluded) {
+                    push @{$exclusions_ref->{$root_parent}}, { org => $org };
+                    log_info("Generated local dependency-level exclusion for '$org' under parent '$root_parent'");
+                }
+            }
+            else {
+                for my $mod (@modules) {
+                    my $already_excluded = 0;
+                    for my $rule (@{$exclusions_ref->{$root_parent}}) {
+                        if ((defined $rule->{org} && $rule->{org} eq $org) &&
+                            (defined $rule->{module} && $rule->{module} eq $mod)) {
+                            $already_excluded = 1;
+                            last;
+                        }
+                    }
+
+                    if (!$already_excluded) {
+                        push @{$exclusions_ref->{$root_parent}}, { org => $org, module => $mod };
+                        log_info("Generated local org+module exclusion for '$org#$mod' under parent '$root_parent'");
+                    }
+                }
+            }
         }
     }
-
-    return %parents;
-}
-
-sub strip_auto_generated_exclusions {
-    my ($xml_content, $update_ref) = @_;
-
-    # Strip org-level bouncycastle excludes (auto-generated for jdk15on variants)
-    $xml_content =~ s{\s*<exclude\s+org="org\.bouncycastle"\s*/>}{}gms;
-
-    # Strip module-level excludes for dependencies with version overrides in update data
-    # (these are auto-generated for version mismatches)
-    if (defined $update_ref && %$update_ref) {
-        foreach my $dep_name (keys %$update_ref) {
-            # Escape special characters for regex
-            my $escaped_name = quotemeta($dep_name);
-            $xml_content =~ s{\s*<exclude\s+[^>]*module="$escaped_name"\s*/>}{}gms;
-        }
-    }
-
-    return $xml_content;
 }
 
 sub extract_global_exclusions {
