@@ -108,11 +108,9 @@ sub main {
     my $update = load_update_data();
 
     if ($hibernate5) {
-        # Override revisions for Hibernate 5.x dependencies
         $update->{"hibernate-core-jakarta"} = { org => "org.hibernate", name => "hibernate-core-jakarta", rev => "5.6.15.Final" };
         $update->{"hibernate-jpamodelgen"} = { org => "org.hibernate", name => "hibernate-jpamodelgen", rev => "5.6.15.Final" };
 
-        # cleanup and replace
         $update->{"hibernate-core"} = $update->{"hibernate-core-jakarta"};
         push @remove_packages, "hibernate-community-dialects";
     }
@@ -130,9 +128,9 @@ sub main {
     };
 
     my $exclusions = {};
-
     my @packages;
 
+    # 1. READ ORIGINAL IVY.XML
     my $file_content;
     open(my $in, "<", $ivy_file)
         or die "Error: could not open '$ivy_file': $!";
@@ -140,79 +138,20 @@ sub main {
         local $/;
         $file_content = <$in>;
     }
+    close($in);
 
-    # Detect parents that currently have bouncycastle jdk15on module-specific excludes
     my %parents_with_bc_excludes = detect_parents_with_bouncycastle_excludes($file_content);
 
-    # Strip auto-generated exclusions BEFORE regenerating .deps so show-deps sees the full transitive tree
-    my $stripped_content = strip_auto_generated_exclusions($file_content, $update);
-
-    # Temporarily write stripped version to disk so show-deps sees full tree without exclusions
-    my $backup_needed = ($stripped_content ne $file_content);
-    open(my $temp_fh, ">", "$ivy_file-clean")
-        or die "Error: could not write temporary '$ivy_file-clean': $!";
-    print $temp_fh $stripped_content;
-    close $temp_fh;
-
-    update_deps_file($ivy_file);
-
-    # Dynamically generate the transitive version map from the fresh .deps tree
-    my $remove_redundant_transitives_versioned = generate_transitive_map_from_deps('.deps');
-
-    my %global_excludes = extract_global_exclusions($file_content);
-
-    # Pre-scan ivy.xml to track all currently present direct dependencies
+    # Pre-scan ivy.xml to track direct dependencies
     my %present_deps;
     while ($file_content =~ /<dependency\s+(?:[^>]*?\s+)?name="([^"]+)"/g) {
         $present_deps{$1} = 1;
     }
 
-    # Compute exact set of direct dependencies that will SURVIVE this run
-    my %surviving_deps;
-    for my $dep (keys %present_deps) {
-        if ($update->{$dep} && $update->{$dep}->{keep}) {
-            $surviving_deps{$dep} = 1;
-            next;
-        }
-
-        next if $unused_deps_to_drop{$dep};
-        next if grep {$dep =~ $_} @remove_packages;
-
-        $surviving_deps{$dep} = 1;
-    }
-
-    # Second Pass: Prune dependencies whose parents actually survived
-    for my $dep (keys %surviving_deps) {
-        my ($current_rev) = $file_content =~ /<dependency\s+[^>]*name="\Q$dep\E"[^>]*rev="([^"]+)"/;
-
-        if (should_remove_transitive($dep, $current_rev, $update, \%used_deps_to_keep, \%surviving_deps, $remove_redundant_transitives_versioned)) {
-            delete $surviving_deps{$dep};
-        }
-    }
-
-    # Generate dynamic exclusions ONLY for surviving deps that aren't globally excluded
-    generate_dynamic_exclusions_from_deps('.deps', \%surviving_deps, $exclusions, \%global_excludes, $update, $add_if_missing, \%globally_add_deps);
-
-    # Ensure all parents that had old-style bouncycastle module excludes now get org-level exclusions
-    for my $parent (keys %parents_with_bc_excludes) {
-        if (exists $surviving_deps{$parent}) {
-            $exclusions->{$parent} ||= [];
-            my $already_has_org_bc = 0;
-            for my $rule (@{$exclusions->{$parent}}) {
-                if ((defined $rule->{org} && $rule->{org} eq 'org.bouncycastle') &&
-                    !defined $rule->{module}) {
-                    $already_has_org_bc = 1;
-                    last;
-                }
-            }
-            if (!$already_has_org_bc) {
-                push @{$exclusions->{$parent}}, { org => 'org.bouncycastle' };
-                log_info("Generated org.bouncycastle exclusion on parent '$parent' (had old-style bouncycastle module excludes)");
-            }
-        }
-    }
-
-    # Process and rewrite ivy.xml content
+    my $changes_made = 0;
+    # ------------------------------------------------------------------
+    # STAGE 1: IN-PLACE UPDATES (Preserves existing <exclude> tags in $file_content)
+    # ------------------------------------------------------------------
     $file_content =~ s{
     ^ (\s*)(?!<--)
     (<dependency\s+
@@ -247,29 +186,24 @@ sub main {
             log_warning("Keep $dep_name");
             $replacement_str = $leading_whitespace . $dependency_block;
         }
-        elsif (should_remove_transitive($dep_name, $current_rev, $update, \%used_deps_to_keep, \%surviving_deps, $remove_redundant_transitives_versioned)) {
-            if ($audit_deps && $used_deps_to_keep{$dep_name}) {
-                $replacement_str = $leading_whitespace . $dependency_block;
-            }
-            else {
-                log_info("Remove redundant transitive $dep_name (rev '$current_rev' is <= required override version)");
-            }
-        }
         elsif (grep {$dep_name =~ $_} @remove_packages && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
             log_info("Remove $dep_name");
+            $changes_made += 1;
         }
         elsif ($unused_deps_to_drop{$dep_name} && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
             log_info("Remove unused dependency $dep_name (no active imports in src/)");
+            $changes_made += 1;
         }
         elsif (grep {$dep_name eq $_} @packages) {
             log_warning("Remove duplicate dependency $dep_name");
+            $changes_made += 1;
         }
         else {
-            push @packages, $dep_name; # keep list of dependencies we have found
+            push @packages, $dep_name;
 
             my $modified_dependency_block = $dependency_block;
-
             my $update_entry_ref = $update->{$dep_name};
+
             if (defined $update_entry_ref) {
                 $update_entry_ref->{"conf"} = 'runtime->default' unless $update_entry_ref->{"conf"};
                 my $should_keep_rev = 0;
@@ -293,14 +227,12 @@ sub main {
 
                         if ($modified_dependency_block =~ s/\b$key="([^"]*)"/$key="$new_val"/i) {
                             log_success("Update $dep_name:$key to $new_val") unless $1 eq $new_val;
+                            $changes_made += 1 unless $1 eq $new_val;
                         }
                         else {
                             log_warning("$dep_org,$dep_name attempting to add missing $key attribute");
                             if ($modified_dependency_block =~ s# /># $key="$new_val" />#) {
-                                # Attribute was added
-                            }
-                            else {
-                                log_error("unable to add $key attribute");
+                                # Attribute added
                             }
                         }
                     }
@@ -311,59 +243,149 @@ sub main {
                 }
             }
 
-            # ------------------------------------------------------------------
-            # CLEAN RECONSTRUCTION OF DEPENDENCY BLOCK
-            # ------------------------------------------------------------------
-            # 1. Extract pure opening attributes (handles conf="runtime->default" cleanly)
-            my $clean_attrs = '';
-            if ($modified_dependency_block =~ m{^<dependency\s+((?:[^"'>]|"[^"]*"|'[^']*')+?)\s*(?:/>|>)}s) {
-                $clean_attrs = $1;
-                $clean_attrs =~ s/\s+/ /g; # Normalize spaces
-                $clean_attrs =~ s/\s+$//;  # Trim trailing whitespace
-            }
-
-            # 2. Check for dynamic exclusions generated for this dep
-            my $dep_exclusions = $exclusions->{$dep_name} || $exclusions->{"$dep_org,$dep_name"};
-
-            if (defined $dep_exclusions && @$dep_exclusions > 0) {
-                my $current_dep_tag_indent = '';
-                if ($leading_whitespace =~ m/^(\s*)/s) {
-                    my @lines = split /\r?\n/, $leading_whitespace;
-                    $current_dep_tag_indent = $lines[-1];
-                }
-                my $exclusion_indent = $current_dep_tag_indent . '    ';
-
-                my $new_exclusions = generate_exclusion_xml($dep_exclusions, $exclusion_indent, $dep_name);
-
-                if (length $new_exclusions > 0) {
-                    $modified_dependency_block = "<dependency $clean_attrs>$new_exclusions\n$current_dep_tag_indent</dependency>";
-                }
-                else {
-                    $modified_dependency_block = "<dependency $clean_attrs />";
-                }
-            }
-            else {
-                # 3. NO EXCLUSIONS: Collapse multi-line container tag to single self-closing tag
-                $modified_dependency_block = "<dependency $clean_attrs />";
-            }
-
+            # DO NOT strip existing excludes from $file_content here!
             $replacement_str = $leading_whitespace . $modified_dependency_block;
         }
 
         $replacement_str;
     }mxseg;
 
-    my $dependencies_close_tag_indent = '    ';
-    if ($file_content =~ m!^(\s*)</dependencies>!ms) {
-        $dependencies_close_tag_indent = $1;
+    # ------------------------------------------------------------------
+    # STAGE 2: CREATE TEMPORARY CLEAN XML FOR show-deps
+    # ------------------------------------------------------------------
+    my $clean_content = $file_content;
+
+    # Strip inner <exclude> tags ONLY in $clean_content so show-deps can evaluate raw transitives
+    $clean_content =~ s{
+        (<dependency\s+(?:[^"'>]|"[^"]*"|'[^']*')+?)
+        (?:\s*/>|\s*>\s*(?:<exclude\s+[^/>]+/>\s*)*\s*</dependency>)
+    }{$1 />}gsx;
+
+    my $clean_file = "$ivy_file-clean";
+    open(my $clean_fh, ">", $clean_file)
+        or die "Error: could not write clean file '$clean_file': $!";
+    print $clean_fh $clean_content;
+    close $clean_fh;
+    log_info("Wrote temporary clean stage-1 file to $clean_file");
+
+    # Run show-deps against the temporary clean file
+    update_deps_file($clean_file, $changes_made > 0);
+
+    unlink $clean_file;
+
+    # ------------------------------------------------------------------
+    # STAGE 3: TRANSITIVE ANALYSIS & DYNAMIC EXCLUSION GENERATION
+    # ------------------------------------------------------------------
+    my %global_excludes = extract_global_exclusions($file_content);
+    my $remove_redundant_transitives_versioned = generate_transitive_map_from_deps('.deps');
+
+    # Compute surviving direct dependencies
+    my %surviving_deps;
+    while ($file_content =~ /<dependency\s+(?:[^>]*?\s+)?name="([^"]+)"/g) {
+        $surviving_deps{$1} = 1;
+    }
+
+    # Pass intact $file_content so is_already_excluded_in_xml accurately checks pre-existing rules
+    generate_dynamic_exclusions_from_deps(
+        '.deps',
+        \%surviving_deps,
+        $exclusions,
+        \%global_excludes,
+        $update,
+        $add_if_missing,
+        \%globally_add_deps,
+        $file_content
+    );
+
+    # Apply bouncycastle org-level exclusions if required
+    for my $parent (keys %parents_with_bc_excludes) {
+        if (exists $surviving_deps{$parent}) {
+            $exclusions->{$parent} ||= [];
+            my $already_has_org_bc = 0;
+            for my $rule (@{$exclusions->{$parent}}) {
+                if ((defined $rule->{org} && $rule->{org} eq 'org.bouncycastle') && !defined $rule->{module}) {
+                    $already_has_org_bc = 1;
+                    last;
+                }
+            }
+            if (!$already_has_org_bc) {
+                push @{$exclusions->{$parent}}, { org => 'org.bouncycastle' };
+            }
+        }
+    }
+
+    # ------------------------------------------------------------------
+    # STAGE 4: APPEND NEW EXCLUSIONS TO $file_content
+    # ------------------------------------------------------------------
+    for my $dep_name (keys %$exclusions) {
+        my $dep_exclusions = $exclusions->{$dep_name};
+        next unless defined $dep_exclusions && @$dep_exclusions > 0;
+
+        # Append new exclusions cleanly into $file_content
+        $file_content =~ s{
+            ^ (\s*)
+            (
+                <dependency\s+
+                (?:[^"'>]|"[^"]*"|'[^']*')+?
+            )
+            (
+                \s*/>
+                |
+                \s*>\s*(.*?)\s*</dependency>
+            )
+        }{
+            my $indent = $1;
+            my $open_tag = $2;
+            my $close_part = $3;
+            my $existing_inner = $4 // '';
+
+            if ($open_tag =~ /\bname="\Q$dep_name\E"/) {
+                my $ex_indent = $indent . '    ';
+
+                # Check for existing exclusions inside this dependency block to avoid duplication
+                my @new_rules;
+                for my $rule (@$dep_exclusions) {
+                    my $mod = $rule->{module};
+                    my $group = $rule->{org};
+
+                    my $already_present = 0;
+                    if (defined $mod && $existing_inner =~ /<exclude\s+(?:[^>]*?\s+)?module="\Q$mod\E"/) {
+                        $already_present = 1;
+                    }
+                    if (defined $group && !defined $mod && $existing_inner =~ /<exclude\s+(?:[^>]*?\s+)?org="\Q$group\E"/) {
+                        $already_present = 1;
+                    }
+
+                    push @new_rules, $rule unless $already_present;
+                }
+
+                if (@new_rules) {
+                    my $ex_xml = generate_exclusion_xml(\@new_rules, $ex_indent);
+                    if ($existing_inner ne '') {
+                        "$indent$open_tag>\n$existing_inner\n$ex_xml\n$indent</dependency>";
+                    }
+                    else {
+                        "$indent$open_tag>$ex_xml\n$indent</dependency>";
+                    }
+                }
+                else {
+                    $&; # No new exclusions to add
+                }
+            }
+            else {
+                $&;
+            }
+        }gmsxe;
     }
 
     insert_missing_dependencies(\$file_content, $add_if_missing, $update, $exclusions);
 
+    # Write final output to ivy.xml.new
     open(my $out, ">", $output_file)
         or die "Error: could not open '$output_file': $!";
     print $out $file_content;
     close $out;
+    log_success("Successfully updated $output_file");
 }
 
 main();
@@ -537,14 +559,14 @@ sub should_remove_transitive {
 }
 
 sub update_deps_file {
-    my ($ivy_file) = @_;
+    my ($ivy_file, $force_update) = @_;
     my $deps_file = '.deps';
     $ivy_file ||= 'ivy.xml';
     my $ant_cmd = "/c/ant/bin/ant -f my-build.xml show-deps -Divy.file=$ivy_file-clean";
     my $deps_mtime = (-e $deps_file) ? (stat($deps_file))->mtime : 0;
     my $ivy_mtime = (-e $ivy_file) ? (stat($ivy_file))->mtime : 0;
 
-    if ($deps_mtime > 0 && $deps_mtime > $ivy_mtime) {
+    if (!$force_update && $deps_mtime > 0 && $deps_mtime > $ivy_mtime) {
         log_info("$deps_file is up to date relative to $ivy_file. Skipping ant execution.\n");
         return;
     }
