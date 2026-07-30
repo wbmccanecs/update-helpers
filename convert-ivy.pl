@@ -34,46 +34,48 @@ sub main {
     my %unused_deps_to_drop;
     my $ivy_file = "ivy.xml";
     my $output_file = "ivy.xml.new";
+    my $deps_file = ".deps";
 
     my $libdir = (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
 
     my @src_dirs = ('src', 'test');
-    if (-e "$libdir/mgic-business.jar") {
-        log_file_check("$libdir/mgic-business.jar");
-        push @src_dirs, "../mgic_business/src";
-    }
-    if (-e "$libdir/mgic-common.jar") {
-        log_file_check("$libdir/mgic-common.jar");
-        push @src_dirs, "../mgic_common/src";
-    }
-    if (-e "$libdir/mgic-entity-custom.jar" || -e "$libdir/mgic-entity-master.jar") {
-        log_file_check("$libdir/mgic-entity-custom.jar") if -e "$libdir/mgic-entity-custom.jar";
-        log_file_check("$libdir/mgic-entity-master.jar") if -e "$libdir/mgic-entity-master.jar";
-        log_error("Both mgic-entity-custom.jar and mgic-entity-master.jar exist. Please remove one of them.")
-            if -e "$libdir/mgic-entity-custom.jar" && -e "$libdir/mgic-entity-master.jar";
-        push @src_dirs, "../mgic_entity/src";
-    }
-    if (-e "$libdir/mgic-mux.jar") {
-        log_file_check("$libdir/mgic-mux.jar");
-        push @src_dirs, "../mgic_mux/src";
-    }
-    if (-e "$libdir/mgic-persistence.jar") {
-        log_file_check("$libdir/mgic-persistence.jar");
-        push @src_dirs, "../mgic_persistence/src";
-    }
-    if (-e "$libdir/esb-common.jar") {
-        log_file_check("$libdir/esb-common.jar");
-        push @src_dirs, "../esb_common/src";
-    }
-
-    my %used_deps_to_keep = extract_all_referenced_packages(\@src_dirs, (-d 'war' ? 'war' : undef));
 
     if ($audit_deps) {
         log_file_check($libdir);
 
+        if (-e "$libdir/mgic-business.jar") {
+            log_file_check("$libdir/mgic-business.jar");
+            push @src_dirs, "../mgic_business/src";
+        }
+        if (-e "$libdir/mgic-common.jar") {
+            log_file_check("$libdir/mgic-common.jar");
+            push @src_dirs, "../mgic_common/src";
+        }
+        if (-e "$libdir/mgic-entity-custom.jar" || -e "$libdir/mgic-entity-master.jar") {
+            log_file_check("$libdir/mgic-entity-custom.jar") if -e "$libdir/mgic-entity-custom.jar";
+            log_file_check("$libdir/mgic-entity-master.jar") if -e "$libdir/mgic-entity-master.jar";
+            log_error("Both mgic-entity-custom.jar and mgic-entity-master.jar exist. Please remove one of them.")
+                if -e "$libdir/mgic-entity-custom.jar" && -e "$libdir/mgic-entity-master.jar";
+            push @src_dirs, "../mgic_entity/src";
+        }
+        if (-e "$libdir/mgic-mux.jar") {
+            log_file_check("$libdir/mgic-mux.jar");
+            push @src_dirs, "../mgic_mux/src";
+        }
+        if (-e "$libdir/mgic-persistence.jar") {
+            log_file_check("$libdir/mgic-persistence.jar");
+            push @src_dirs, "../mgic_persistence/src";
+        }
+        if (-e "$libdir/esb-common.jar") {
+            log_file_check("$libdir/esb-common.jar");
+            push @src_dirs, "../esb_common/src";
+        }
+
         my ($unused_ref, $used_ref) = audit_dependencies(\@src_dirs, $libdir);
         %unused_deps_to_drop = %$unused_ref;
     }
+
+    my %used_deps_to_keep = extract_all_referenced_packages(\@src_dirs, (-d 'war' ? 'war' : undef));
 
     my @remove_packages = (
         "commons-httpclient",
@@ -272,7 +274,7 @@ sub main {
     log_info("Wrote temporary clean stage-1 file to $clean_file");
 
     # Run show-deps against the temporary clean file
-    update_deps_file($clean_file, $changes_made > 0);
+    update_deps_file($clean_file, $deps_file, $changes_made > 0);
 
     unlink $clean_file;
 
@@ -280,7 +282,7 @@ sub main {
     # STAGE 3: TRANSITIVE ANALYSIS & DYNAMIC EXCLUSION GENERATION
     # ------------------------------------------------------------------
     my %global_excludes = extract_global_exclusions($file_content);
-    my $remove_redundant_transitives_versioned = generate_transitive_map_from_deps('.deps');
+    my $remove_redundant_transitives_versioned = generate_transitive_map_from_deps($deps_file);
 
     # Compute surviving direct dependencies
     my %surviving_deps;
@@ -315,7 +317,7 @@ sub main {
 
     # Pass intact $file_content so is_already_excluded_in_xml accurately checks pre-existing rules
     generate_dynamic_exclusions_from_deps(
-        '.deps',
+        $deps_file,
         \%surviving_deps,
         $exclusions,
         \%global_excludes,
@@ -413,6 +415,10 @@ sub main {
     print $out $file_content;
     close $out;
     log_success("Successfully updated $output_file");
+
+    if ($audit_deps) {
+        report_missing_transitive_imports(\@src_dirs, $deps_file, 'C:/Tomcat10/lib');
+    }
 }
 
 main();
@@ -590,8 +596,7 @@ sub should_remove_transitive {
 }
 
 sub update_deps_file {
-    my ($ivy_file, $force_update) = @_;
-    my $deps_file = '.deps';
+    my ($ivy_file, $deps_file, $force_update) = @_;
     $ivy_file ||= 'ivy.xml';
     my $ant_bin = (-e '/c/ant/bin/ant') ? '/c/ant/bin/ant' : 'ant';
     my $ant_cmd = "$ant_bin -f my-build.xml show-deps -Divy.file=$ivy_file-clean";
@@ -1375,6 +1380,204 @@ sub load_update_data {
     }
 
     $hash;
+}
+
+sub report_missing_transitive_imports {
+    my ($src_dirs_ref, $deps_file, $extra_lib_dir) = @_;
+
+    my @src_dirs = ref($src_dirs_ref) eq 'ARRAY' ? @{$src_dirs_ref} : ($src_dirs_ref);
+    my @local_dirs = grep {$_ !~ m{^\.\./}} @src_dirs;
+    my @mgic_dirs = grep {$_ =~ m{^\.\./}} @src_dirs;
+
+    return unless @mgic_dirs;
+
+    log_info("--- AUDITING MISSING IMPORTS FROM REACHABLE MGIC CLASSES ---");
+
+    # ------------------------------------------------------------------
+    # Step 1: Collect Local References (src/, test/)
+    # ------------------------------------------------------------------
+    my %local_references;
+    find({
+        wanted   => sub {
+            return unless -f $_ && $_ =~ /\.java$/i;
+            open(my $fh, '<', $_) or return;
+            while (my $line = <$fh>) {
+                if ($line =~ /^\s*import\s+(?:static\s+)?([a-zA-Z0-9_\.\*]+)\s*;\s*$/) {
+                    my $imp = $1;
+                    $imp =~ s#\.\*$##;
+                    $local_references{$imp} = 1;
+                }
+            }
+            close($fh);
+        },
+        no_chdir => 1
+    }, @local_dirs);
+
+    # ------------------------------------------------------------------
+    # Step 2: Parse mgic_dirs & Identify Reachable Classes + Their Imports
+    # ------------------------------------------------------------------
+    my %mgic_classes; # FQCN -> { pkg => '...', imports => [ ... ] }
+
+    find({
+        wanted   => sub {
+            return unless -f $_ && $_ =~ /\.java$/i;
+            open(my $fh, '<', $_) or return;
+            my $pkg = '';
+            my $class_name = '';
+            my @file_imports;
+
+            while (my $line = <$fh>) {
+                if ($line =~ /^\s*package\s+([a-zA-Z0-9_\.]+)\s*;\s*$/) {
+                    $pkg = $1;
+                }
+                elsif ($line =~ /\b(?:public\s+|protected\s+)?(?:class|interface|enum|record)\s+([a-zA-Z0-9_]+)/) {
+                    $class_name = $1 unless $class_name;
+                }
+                if ($line =~ /^\s*import\s+(?:static\s+)?([a-zA-Z0-9_\.\*]+)\s*;\s*$/) {
+                    my $imp = $1;
+                    $imp =~ s#\.\*$##;
+                    push @file_imports, $imp unless $imp =~ /^(java|javax)\./; # Ignore Java SE
+                }
+            }
+            close($fh);
+
+            if ($pkg && $class_name) {
+                my $fqcn = "$pkg.$class_name";
+                $mgic_classes{$fqcn} = {
+                    pkg     => $pkg,
+                    imports => \@file_imports
+                };
+            }
+        },
+        no_chdir => 1
+    }, @mgic_dirs);
+
+    my %reachable_mgic_imports; # Raw Import -> Triggering Mgic FQCN
+
+    for my $fqcn (keys %mgic_classes) {
+        my $info = $mgic_classes{$fqcn};
+        my $pkg = $info->{pkg};
+
+        my $is_reachable = 0;
+        if (exists $local_references{$fqcn} || exists $local_references{$pkg}) {
+            $is_reachable = 1;
+        }
+        else {
+            for my $ref (keys %local_references) {
+                if ($fqcn eq $ref || $fqcn =~ /^\Q$ref\E\./) {
+                    $is_reachable = 1;
+                    last;
+                }
+            }
+        }
+
+        if ($is_reachable) {
+            for my $imp (@{$info->{imports}}) {
+                $reachable_mgic_imports{$imp} ||= [];
+                push @{$reachable_mgic_imports{$imp}}, $fqcn;
+            }
+        }
+    }
+
+    # ------------------------------------------------------------------
+    # Step 3: Collect Provided Dependencies (.deps + Tomcat shared lib)
+    # ------------------------------------------------------------------
+    my %provided_modules;
+
+    # A. Parse .deps file
+    if (-e $deps_file) {
+        open(my $dfh, '<', $deps_file);
+        while (my $line = <$dfh>) {
+            if ($line =~ /([^#\s]+)#([^;]+);/) {
+                my $org = $1;
+                my $name = $2;
+                $provided_modules{$name} = 1;
+                $provided_modules{"$org.$name"} = 1;
+                $provided_modules{$org} = 1;
+            }
+        }
+        close($dfh);
+    }
+
+    # B. Inspect extra container lib dir (e.g. C:/tomcat10/lib) ONLY if passed
+    if (defined $extra_lib_dir && -d $extra_lib_dir) {
+        log_info("Including container library directory in audit: $extra_lib_dir");
+
+        # Standard container provided packages (Servlet API, IBM MQ, XML parsers, etc.)
+        $provided_modules{'org.w3c.dom'} = 1;
+        $provided_modules{'org.xml.sax'} = 1;
+
+        find({
+            wanted   => sub {
+                return unless -f $_ && $_ =~ /\.jar$/i;
+                my $jar_name = lc(basename($_));
+
+                # Add heuristic mappings based on JAR names in Tomcat lib
+                if ($jar_name =~ /mq|wmq/i) {
+                    $provided_modules{'com.ibm.mq'} = 1;
+                    $provided_modules{'com.ibm.msg'} = 1;
+                }
+                elsif ($jar_name =~ /servlet|jsp|el-api|catalina|tomcat/i) {
+                    $provided_modules{'jakarta.servlet'} = 1;
+                    $provided_modules{'org.apache.catalina'} = 1;
+                }
+
+                # Extract actual package names from jar entries using 'jar tf' or 'unzip -l'
+                my $jar_path = $_;
+                if (my @entries = `jar tf "$jar_path" 2>/dev/null`) {
+                    for my $entry (@entries) {
+                        if ($entry =~ /^([a-zA-Z0-9_\/]+)\/[^\/]+\.class$/) {
+                            my $pkg = $1;
+                            $pkg =~ s#/#.#g;
+                            $provided_modules{$pkg} = 1;
+                        }
+                    }
+                }
+            },
+            no_chdir => 1
+        }, $extra_lib_dir);
+    }
+
+    # ------------------------------------------------------------------
+    # Step 4: Cross-Reference & Report Missing Imports
+    # ------------------------------------------------------------------
+    my $missing_count = 0;
+
+    for my $needed_import (sort keys %reachable_mgic_imports) {
+        my $is_satisfied = 0;
+
+        for my $prov (keys %provided_modules) {
+            if ($needed_import =~ /^\Q$prov\E\b/i || $prov =~ /^\Q$needed_import\E\b/i) {
+                $is_satisfied = 1;
+                last;
+            }
+            my $clean_prov = $prov;
+            $clean_prov =~ s/^(spring|commons|jakarta|javax|log4j|slf4j|jackson|hibernate|ignite)-//i;
+            if ($needed_import =~ /\b\Q$clean_prov\E\b/i) {
+                $is_satisfied = 1;
+                last;
+            }
+        }
+
+        # Ignore internal MGIC packages
+        if ($needed_import =~ /^com\.mgic\./) {
+            $is_satisfied = 1;
+        }
+
+        if (!$is_satisfied) {
+            $missing_count++;
+            my $triggers = join(', ', @{$reachable_mgic_imports{$needed_import}});
+            log_warning("MISSING DEPENDENCY PROVIDER: '$needed_import'");
+            log_info("   └─ Required by reachable class(es): $triggers");
+        }
+    }
+
+    if ($missing_count == 0) {
+        log_success("All imports required by reachable MGIC classes are satisfied!");
+    }
+    else {
+        log_error("Found $missing_count missing dependency provider(s).");
+    }
 }
 
 __END__
