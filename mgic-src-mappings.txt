@@ -1,0 +1,26 @@
+# Format: jarFilename relativeSrcPath
+# Comments starting with # and empty lines are ignored
+
+mgic-business.jar                       ../mgic_business/src
+mgic-common.jar                         ../mgic_common/src
+mgic-mux.jar                            ../mgic_mux/src
+mgic-persistence.jar                    ../mgic_persistence/src
+esb-common.jar                          ../esb_common/src
+mgic-entity-custom.jar                  ../mgic_entity/src
+mgic-entity-master.jar                  ../mgic_entity/src
+address-standardize-client.jar          ../business_party_service_10427/src/com/mgic/service/address ../business_party_service_10427/src/com/mgic/service/address/model ../business_party_service_10427/src/com/mgic/service/address/exception ../business_party_service_10427/src/com/mgic/service/address/security ../business_party_service_10427/src/com/mgic/service/address/standardize
+party-bps-comment-list-client.jar       ../business_party_service_10427/src/com/mgic/service/party/comment/list
+party-bps-comment-save-client.jar       ../business_party_service_10427/src/com/mgic/service/party/comment/save
+party-bps-organization-list-client.jar  ../business_party_service_10427/src/com/mgic/service/party/list
+party-bps-person-get-client.jar         ../business_party_service_10427/src/com/mgic/service/party/person/get
+party-bps-person-list-client.jar        ../business_party_service_10427/src/com/mgic/service/party/person/list
+party-bps-organization-get-client.jar   ../business_party_service_10427/src/com/mgic/service/party/get
+party-bps-organization-save-client.jar  ../business_party_service_10427/src/com/mgic/service/party/save ../business_party_service_10427/src/com/mgic/service/party/validation
+party-bps-person-save-client.jar        ../business_party_service_10427/src/com/mgic/service/party/person/save
+party-bps-organization-sync-client.jar  ../business_party_service_10427/src/com/mgic/service/party/sync
+party-bps-address-client.jar             ../business_party_service_10427/src/com/mgic/service/party/address
+party-bps-dal.jar                       ../business_party_service_10427/src/com/mgic/persistence/oracle/party ../business_party_service_10427/src/com/mgic/persistence/oracle/util ../business_party_service_10427/src/com/mgic/persistence/oracle/common
+party-bps-rest-models.jar               ../business_party_service_10427/src/com/mgic/service/party/rest/model
+party-bps-rest-get-client.jar           ../business_party_service_10427/src/com/mgic/service/party/rest/get ../business_party_service_10427/src/com/mgic/service/party/rest/model ../business_party_service_10427/src/com/mgic/service/party/rest/get ../business_party_service_10427/src/com/mgic/service/party/rest
+party-bps-rest-list-client.jar          ../business_party_service_10427/src/com/mgic/service/party/rest/list ../business_party_service_10427/src/com/mgic/service/party/rest/model ../business_party_service_10427/src/com/mgic/service/party/rest/list ../business_party_service_10427/src/com/mgic/service/party/rest
+party-bps-mgicemployee-get-client.jar   ../business_party_service_10427/src/com/mgic/service/party/mgic ../business_party_service_10427/src/com/mgic/service/party/mgic/employee/get

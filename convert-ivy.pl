@@ -40,36 +40,14 @@ sub main {
 
     my @src_dirs = ('src', 'test');
 
+    log_error("Both mgic-entity-custom.jar and mgic-entity-master.jar exist. Please remove one of them.")
+        if -e "$libdir/mgic-entity-custom.jar" && -e "$libdir/mgic-entity-master.jar";
+
     if ($audit_deps) {
         log_file_check($libdir);
 
-        if (-e "$libdir/mgic-business.jar") {
-            log_file_check("$libdir/mgic-business.jar");
-            push @src_dirs, "../mgic_business/src";
-        }
-        if (-e "$libdir/mgic-common.jar") {
-            log_file_check("$libdir/mgic-common.jar");
-            push @src_dirs, "../mgic_common/src";
-        }
-        if (-e "$libdir/mgic-entity-custom.jar" || -e "$libdir/mgic-entity-master.jar") {
-            log_file_check("$libdir/mgic-entity-custom.jar") if -e "$libdir/mgic-entity-custom.jar";
-            log_file_check("$libdir/mgic-entity-master.jar") if -e "$libdir/mgic-entity-master.jar";
-            log_error("Both mgic-entity-custom.jar and mgic-entity-master.jar exist. Please remove one of them.")
-                if -e "$libdir/mgic-entity-custom.jar" && -e "$libdir/mgic-entity-master.jar";
-            push @src_dirs, "../mgic_entity/src";
-        }
-        if (-e "$libdir/mgic-mux.jar") {
-            log_file_check("$libdir/mgic-mux.jar");
-            push @src_dirs, "../mgic_mux/src";
-        }
-        if (-e "$libdir/mgic-persistence.jar") {
-            log_file_check("$libdir/mgic-persistence.jar");
-            push @src_dirs, "../mgic_persistence/src";
-        }
-        if (-e "$libdir/esb-common.jar") {
-            log_file_check("$libdir/esb-common.jar");
-            push @src_dirs, "../esb_common/src";
-        }
+        my @external_sources = load_mgic_src_mappings($libdir);
+        push @src_dirs, @external_sources;
 
         my ($unused_ref, $used_ref) = audit_dependencies(\@src_dirs, $libdir);
         %unused_deps_to_drop = %$unused_ref;
@@ -1344,44 +1322,6 @@ sub log_file_check {
     }
 }
 
-sub load_update_data {
-    my $script_dir = $FindBin::RealBin;
-    my $update_hash_file = "$script_dir/revision-updates.txt";
-    my $hash = {};
-
-    if (-e $update_hash_file) {
-        open my $fh, '<', $update_hash_file or die "Cannot open $update_hash_file: $!";
-        while (my $line = <$fh>) {
-            $line =~ s/[\r\n]*//g;
-            $line =~ s/\s*#.*$//; # remove comments
-
-            next if $line =~ /^\s*$/ || $line =~ /^key,/; # Skip empty lines and header
-
-            if ($line =~ /=>/) {
-                # convert old dependency to new dependency format (e.g., "old => new")
-                my ($old, $new) = split /\s*=>\s*/, $line;
-                log_warning("missing key: $new") unless exists $hash->{$new};
-                $hash->{$old} = $hash->{$new};
-            }
-            else {
-                my @fields = split /[:,]\s*/, $line;
-                my $key = shift @fields;
-                for my $field (@fields) {
-                    my ($attribute, $value) = split /=/, $field, 2;
-                    log_warning("mismatched key: $key <=> $value") if $attribute eq 'name' && $value ne $key;
-                    $hash->{$key}{$attribute} = $value;
-                }
-            }
-        }
-        close $fh;
-    }
-    else {
-        die "Update hash file $update_hash_file not found!";
-    }
-
-    $hash;
-}
-
 sub report_missing_transitive_imports {
     my ($src_dirs_ref, $deps_file, $extra_lib_dir) = @_;
 
@@ -1578,6 +1518,80 @@ sub report_missing_transitive_imports {
     else {
         log_error("Found $missing_count missing dependency provider(s).");
     }
+}
+
+sub load_update_data {
+    my $script_dir = $FindBin::RealBin;
+    my $update_hash_file = "$script_dir/revision-updates.txt";
+    my $hash = {};
+
+    if (-e $update_hash_file) {
+        open my $fh, '<', $update_hash_file or die "Cannot open $update_hash_file: $!";
+        while (my $line = <$fh>) {
+            $line =~ s/[\r\n]*//g;
+            $line =~ s/\s*#.*$//; # remove comments
+
+            next if $line =~ /^\s*$/ || $line =~ /^key,/; # Skip empty lines and header
+
+            if ($line =~ /=>/) {
+                # convert old dependency to new dependency format (e.g., "old => new")
+                my ($old, $new) = split /\s*=>\s*/, $line;
+                log_warning("missing key: $new") unless exists $hash->{$new};
+                $hash->{$old} = $hash->{$new};
+            }
+            else {
+                my @fields = split /[:,]\s*/, $line;
+                my $key = shift @fields;
+                for my $field (@fields) {
+                    my ($attribute, $value) = split /=/, $field, 2;
+                    log_warning("mismatched key: $key <=> $value") if $attribute eq 'name' && $value ne $key;
+                    $hash->{$key}{$attribute} = $value;
+                }
+            }
+        }
+        close $fh;
+    }
+    else {
+        die "Update hash file $update_hash_file not found!";
+    }
+
+    $hash;
+}
+
+sub load_mgic_src_mappings {
+    my ($libdir) = @_;
+    my @detected_dirs;
+    my $script_dir = $FindBin::RealBin;
+    my $mapping_file = "$script_dir/mgic-src-mappings.txt";
+
+    return @detected_dirs unless -e $mapping_file;
+
+    open my $fh, '<', $mapping_file or die "Cannot open $mapping_file: $!";
+    my %seen_paths;
+
+    while (my $line = <$fh>) {
+        $line =~ s/[\r\n]*//g;
+        $line =~ s/\s*#.*$//;     # Remove comments
+        next if $line =~ /^\s*$/; # Skip empty lines
+
+        # Split into JAR name and everything else (paths string)
+        my ($jar_name, $paths_str) = split /\s+/, $line, 2;
+        next unless defined $jar_name && defined $paths_str;
+
+        # If the JAR exists in lib/ or WEB-INF/lib, include all associated src paths
+        if (-e "$libdir/$jar_name") {
+            my @src_paths = split /\s+/, $paths_str;
+            for my $src_path (@src_paths) {
+                if (-d $src_path && !$seen_paths{$src_path}) {
+                    push @detected_dirs, $src_path;
+                    $seen_paths{$src_path} = 1;
+                }
+            }
+        }
+    }
+    close $fh;
+
+    return @detected_dirs;
 }
 
 __END__
