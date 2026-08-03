@@ -63,7 +63,7 @@ jakarta.servlet.jsp.jstl: org=org.glassfish.web, name=jakarta.servlet.jsp.jstl, 
 jakarta.servlet.jsp.jstl-api: org=jakarta.servlet.jsp.jstl, name=jakarta.servlet.jsp.jstl-api, rev=3.0.2
 lombok: org=org.projectlombok, name=lombok, rev=1.18.46
 jakarta.annotation-api: org=jakarta.annotation, name=jakarta.annotation-api, rev=3.0.0
-byte-buddy-agent: org=net.bytebuddy, name=byte-buddy-agent, rev=1.17.7, conf=compile->default
+byte-buddy-agent: org=net.bytebuddy, name=byte-buddy-agent, rev=1.17.8, conf=compile->default
 
 # Hibernate - assume hibernate 6
 hibernate-core: org=org.hibernate.orm, name=hibernate-core, rev=6.6.54.Final
@@ -72,7 +72,7 @@ hibernate-community-dialects: org=org.hibernate.orm, name=hibernate-community-di
 hibernate-validator: org=org.hibernate.validator, name=hibernate-validator, rev=8.0.0.Final
 hibernate-validator-annotation-processor: org=org.hibernate.validator, name=hibernate-validator-annotation-processor, rev=8.0.0.Final
 dom4j: org=org.dom4j, name=dom4j, rev=2.2.0
-byte-buddy: org=net.bytebuddy, name=byte-buddy, rev=1.17.7
+byte-buddy: org=net.bytebuddy, name=byte-buddy, rev=1.17.8
 jakarta.persistence-api: org=jakarta.persistence, name=jakarta.persistence-api, rev=3.2.0
 jakarta.transaction-api: org=jakarta.transaction, name=jakarta.transaction-api, rev=2.0.1
 
