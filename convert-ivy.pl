@@ -226,7 +226,12 @@ sub main {
                 }
             }
 
-            # DO NOT strip existing excludes from $file_content here!
+            # Strip old inner <exclude> tags from $file_content so dynamic exclusions can be freshly generated
+            $modified_dependency_block =~ s{\s*<exclude\s+[^/>]+/>}{}g;
+
+            # If removing excludes left an empty open/close tag pair, collapse it to a self-closing tag
+            $modified_dependency_block =~ s{>\s*</dependency>}{ />};
+
             $replacement_str = $leading_whitespace . $modified_dependency_block;
         }
 
@@ -254,7 +259,7 @@ sub main {
     # Run show-deps against the temporary clean file
     update_deps_file($clean_file, $deps_file, $changes_made > 0);
 
-    unlink $clean_file;
+    # unlink $clean_file;
 
     # ------------------------------------------------------------------
     # STAGE 3: TRANSITIVE ANALYSIS & DYNAMIC EXCLUSION GENERATION
@@ -527,7 +532,8 @@ sub should_remove_transitive {
         return 0;
     }
 
-    my $has_exact_match_parent = 0;
+    my $found_exact_match = 0;
+    my $found_version_mismatch = 0;
 
     # 2. Scan ALL surviving parents
     for my $parent_pkg (keys %$remove_redundant_transitives_versioned) {
@@ -551,22 +557,31 @@ sub should_remove_transitive {
                     $cmp = version_compare($effective_rev, $transitive_rev);
                 }
 
-                # IF ANY SURVIVING PARENT brings in a mismatched/older version (e.g. ignite-log4j2 brings 2.25.3),
-                # WE MUST KEEP THE DIRECT DEPENDENCY IN PLACE to force version alignment!
-                if ($cmp != 0) {
-                    log_success("Keeping direct dependency $dep_name ($effective_rev != $transitive_rev via parent '$parent_pkg')");
+                # NEW POLICY: 
+                # - REMOVE if direct == transitive (redundant, parent already provides it)
+                # - KEEP if direct > transitive (no exclude needed, newer version wins)
+                # - KEEP if direct < transitive (override with direct version)
+                if ($cmp > 0) {
+                    # Direct is newer - keep it to use the newer version
+                    log_success("Keeping direct dependency $dep_name ($effective_rev > $transitive_rev from parent '$parent_pkg')");
                     return 0;
                 }
-                else {
-                    $has_exact_match_parent = 1;
+                elsif ($cmp == 0) {
+                    # Exact match - mark for potential removal
+                    $found_exact_match = 1;
+                }
+                elsif ($cmp < 0) {
+                    # Direct is older - keep it to override with specific version
+                    log_success("Keeping direct dependency $dep_name ($effective_rev < $transitive_rev from parent '$parent_pkg') - keeping to override");
+                    return 0;
                 }
             }
         }
     }
 
-    # Only drop if AT LEAST ONE parent matched exactly AND NO parents had version mismatches
-    if ($has_exact_match_parent) {
-        log_info("Dropping redundant direct dependency $dep_name (Fully satisfied by surviving parents at $current_rev)");
+    # Only drop if we found an exact match and NO version mismatches
+    if ($found_exact_match && !$found_version_mismatch) {
+        log_info("Dropping redundant direct dependency $dep_name (Fully satisfied by surviving parents)");
         return 1;
     }
 
@@ -577,7 +592,7 @@ sub update_deps_file {
     my ($ivy_file, $deps_file, $force_update) = @_;
     $ivy_file ||= 'ivy.xml';
     my $ant_bin = (-e '/c/ant/bin/ant') ? '/c/ant/bin/ant' : 'ant';
-    my $ant_cmd = "$ant_bin -f my-build.xml show-deps -Divy.file=$ivy_file-clean";
+    my $ant_cmd = "$ant_bin -f my-build.xml show-deps -Divy.file=$ivy_file";
 
     log_info("INFO: Generating $deps_file from Ant show-deps target...");
 
@@ -931,10 +946,9 @@ sub generate_transitive_map_from_deps {
                 if ($depth > 0 && defined $stack[0]) {
                     my $root_parent = $stack[0];
 
-                    # keep LOWEST version so version mismatch is detected if older versions exist in tree
+                    # keep LOWER version, which ivy should resolve to
                     if (!exists $dynamic_transitives{$root_parent}{$name} ||
-                        version_compare($rev, $dynamic_transitives{$root_parent}{$name}) < 0) {
-
+                        version_compare($rev, $dynamic_transitives{$root_parent}{$name}) <= 0) {
                         $dynamic_transitives{$root_parent}{$name} = $rev;
                     }
                 }
@@ -947,9 +961,47 @@ sub generate_transitive_map_from_deps {
 }
 
 sub generate_dynamic_exclusions_from_deps {
-    my ($deps_file, $surviving_deps_ref, $exclusions_ref, $global_excludes_ref, $update_ref, $add_if_missing_ref, $globally_add_deps_ref) = @_;
+    my ($deps_file, $surviving_deps_ref, $exclusions_ref, $global_excludes_ref, $update_ref, $add_if_missing_ref, $globally_add_deps_ref, $file_content) = @_;
 
     return unless -e $deps_file;
+
+    # Pre-pass: Build a map of the HIGHEST direct dependency version for each module
+    # This prevents unnecessary excludes when one direct version is sufficient
+    my %max_direct_versions;
+    
+    # First, try to get versions from $update_ref (updated dependencies)
+    if (defined $update_ref) {
+        for my $dep_name (keys %$update_ref) {
+            my $rev = $update_ref->{$dep_name}->{rev};
+            if (defined $rev) {
+                if (!exists $max_direct_versions{$dep_name} || 
+                    version_compare($rev, $max_direct_versions{$dep_name}) > 0) {
+                    $max_direct_versions{$dep_name} = $rev;
+                }
+            }
+        }
+    }
+    
+    # Second, extract CURRENT revisions directly from ivy.xml for all direct dependencies
+    # This catches dependencies that are not in $update_ref
+    if (defined $file_content) {
+        # Handle both attribute orders: name before rev and rev before name
+        while ($file_content =~ /<dependency\s+([^>]+)>/g) {
+            my $attrs = $1;
+            my $name;
+            my $rev;
+            $name = $1 if $attrs =~ /\bname="([^"]+)"/;
+            $rev = $1 if $attrs =~ /\brev="([^"]+)"/;
+            
+            if (defined $name && defined $rev) {
+                # Use the version from ivy.xml if it's higher or not yet recorded
+                if (!exists $max_direct_versions{$name} || 
+                    version_compare($rev, $max_direct_versions{$name}) > 0) {
+                    $max_direct_versions{$name} = $rev;
+                }
+            }
+        }
+    }
 
     open(my $fh, '<', $deps_file) or return;
 
@@ -987,18 +1039,39 @@ sub generate_dynamic_exclusions_from_deps {
                         $is_mismatched = 1;
                     }
                     # RULE B: Exact module match in update ref / surviving deps with version difference
+                    # NEW POLICY: Apply version comparison logic - only exclude if direct < transitive
                     elsif (exists $update_ref->{$name} && exists $surviving_deps_ref->{$name}) {
                         my $update_rev = $update_ref->{$name}->{rev};
                         my $parent_update_rev = $update_ref->{$root_parent}->{rev} if exists $update_ref->{$root_parent};
                         if (defined $update_rev && $update_rev ne $rev) {
-                            if (!defined $parent_update_rev || $parent_update_rev ne $update_rev) {
-                                $is_mismatched = 1;
+                            # Version differs - only mark as mismatched if direct < transitive
+                            my $cmp = version_compare($update_rev, $rev);
+                            if ($cmp < 0) {
+                                # Direct version is older than transitive - add exclude
+                                if (!defined $parent_update_rev || $parent_update_rev ne $update_rev) {
+                                    $is_mismatched = 1;
+                                }
                             }
+                            # If direct >= transitive, don't add exclude (new policy)
                         }
                     }
                     # RULE C: Direct dependency present without explicit update rule
+                    # NEW POLICY: Only add exclude if ALL direct versions are OLDER than transitive
                     elsif (exists $surviving_deps_ref->{$name}) {
-                        $is_mismatched = 1;
+                        my $max_direct = $max_direct_versions{$name};
+                        if (defined $max_direct) {
+                            # Compare the HIGHEST direct version against the transitive
+                            my $cmp = version_compare($max_direct, $rev);
+                            if ($cmp < 0) {
+                                # Even the highest direct version is older than this transitive
+                                # Add exclude to force the transitive version
+                                $is_mismatched = 1;
+                            }
+                            # If $cmp >= 0, the highest direct version covers this transitive, no exclude needed
+                        } else {
+                            # No direct version found, exclude conservatively
+                            $is_mismatched = 1;
+                        }
                     }
 
                     if ($is_mismatched) {
