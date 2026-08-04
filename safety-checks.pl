@@ -103,6 +103,7 @@ my $sh_patterns = {
 my $file_patterns = {
     '.gitignore' => {
         '\.idea.*/libraries' => 'fix libraries exclusion',
+        'test-automation'    => 'remove test-automation from .gitignore',
     },
 };
 
@@ -142,12 +143,12 @@ my $checkAll = scalar keys %$checks == 0;
 
 my $abs_start_directory_resolved = abs_path($start_directory);
 if (!defined $abs_start_directory_resolved) {
-    die BOLD RED "Error: Starting directory '$start_directory' does not exist or is inaccessible.\n" . RESET;
+    log_error("Error: Starting directory '$start_directory' does not exist or is inaccessible.");
     exit 1;
 }
-print BOLD MAGENTA "DEBUG (Top-Level): File::Find will start from absolute path: '$abs_start_directory_resolved'\n" . RESET;
+log_info("DEBUG (Top-Level): File::Find will start from absolute path: '$abs_start_directory_resolved'", MAGENTA);
 
-print BOLD GREEN "--- Starting All Safety Checks ---\n" . RESET;
+log_success("--- Starting All Safety Checks ---");
 safety_check($start_directory, 'java', $java_patterns) if $checks->{java} || $checkAll;
 safety_check($start_directory, 'jsp', $jsp_patterns) if $checks->{jsp} || $checkAll;
 safety_check($start_directory, 'js', $js_patterns) if $checks->{js} || $checkAll;
@@ -160,11 +161,11 @@ file_pattern_safety_checks($start_directory, $file_patterns) if $checks->{files}
 misc_checks($start_directory) if $checks->{misc} || $checkAll;
 for my $m (@unwanted) {
     if (-e $m) {
-        print BOLD RED "remove " . $m . RESET . "\n";
+        log_error("remove " . $m);
     }
 }
 
-print BOLD GREEN "--- All Safety Checks Complete ---\n" . RESET;
+log_success("--- All Safety Checks Complete ---");
 exit 0;
 
 sub safety_check {
@@ -178,19 +179,19 @@ sub safety_check {
             $compiled_patterns{$p} = qr/$p/;
         };
         if ($@) {
-            print BOLD RED "Error: Invalid regular expression pattern '$p': $@\n" . RESET;
+            log_error("Error: Invalid regular expression pattern '$p': $@");
             exit 1;
         }
     }
 
-    print BOLD BLUE "\n---Running Safety Check for *.$file_extension files ---\n" . RESET;
-    print BOLD BLUE "  Target files with extension: " . $file_extension . "\n" . RESET;
-    print BOLD BLUE "  Searching for patterns:\n" . RESET;
+    log_info("\nRunning Safety Check for *.$file_extension files");
+    log_info("  Target files with extension: $file_extension");
+    log_info("  Searching for patterns:");
     foreach my $p_regex (sort keys %$patterns_ref) {
-        print BOLD BLUE "    - '$p_regex' (Identified as: " . $patterns_ref->{$p_regex} . ")\n" . RESET;
+        log_info("    - '$p_regex' (Identified as: " . $patterns_ref->{$p_regex} . ")");
     }
-    print BOLD BLUE "  Starting directory: " . $current_dir . "\n" . RESET;
-    print "-" x 50 . "\n\n";
+    log_info("  Starting directory: $current_dir");
+    log_info("-" x 50);
 
     my $file_count = 0;
 
@@ -228,8 +229,8 @@ sub safety_check {
     };
 
     find($wanted_sub, $current_dir);
-    print BOLD BLUE "  Validated files: " . $file_count . "\n" . RESET;
-    print "-" x 50 . "\n\n";
+    log_info("  Validated files: $file_count");
+    log_info("-" x 50);
 }
 
 sub check_single_file {
@@ -243,12 +244,12 @@ sub check_single_file {
 
     # remove unwanted files
     if ($remove_if_exists->{$filename}) {
-        print BOLD YELLOW "$file_path_display " . $remove_if_exists->{$filename} . "\n" . RESET;
+        log_warning("remove " . $filename);
         return 0;
     }
 
     open my $fh, "<", $file_to_open or do {
-        warn BOLD YELLOW "Warning: could not open $file_path_display: $!" . RESET . "\n";
+        log_warning("Warning: could not open $file_path_display: $!");
         return 0;
     };
 
@@ -269,7 +270,7 @@ sub check_single_file {
                 my $output_string = $patterns_ref->{$pattern_regex_key};
                 my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
                 $output_string =~ s/\$(\d+)/$matches[$1 - 1]/ge;
-                print BOLD YELLOW "$file_path_display " . $output_string . "\n" . RESET;
+                log_warning("$file_path_display " . $output_string);
             }
         }
         # Stop early if all patterns have been found
@@ -299,7 +300,7 @@ sub file_pattern_safety_checks {
             }
         };
         if ($@) {
-            print BOLD RED "Error: Invalid wildcard pattern '$wildcard': $@\n" . RESET;
+            log_error("Error: Invalid wildcard pattern '$wildcard': $@");
             exit 1;
         }
 
@@ -310,17 +311,17 @@ sub file_pattern_safety_checks {
                 $compiled_patterns{$p} = qr/$p/;
             };
             if ($@) {
-                print BOLD RED "Error: Invalid regular expression pattern '$p' under wildcard '$wildcard': $@\n" . RESET;
+                log_error("Error: Invalid regular expression pattern '$p' under wildcard '$wildcard': $@");
                 exit 1;
             }
         }
         $compiled_patterns_by_wildcard{$wildcard} = \%compiled_patterns;
     }
 
-    print BOLD BLUE "\n---Running Safety Check for Wildcard File Patterns ---\n" . RESET;
-    print BOLD BLUE "  Target wildcards: " . join(", ", sort keys %$file_patterns_ref) . "\n" . RESET;
-    print BOLD BLUE "  Starting directory: " . $current_dir . "\n" . RESET;
-    print "-" x 50 . "\n\n";
+    log_info("\n---Running Safety Check for Wildcard File Patterns ---");
+    log_info("  Target wildcards: " . join(", ", sort keys %$file_patterns_ref));
+    log_info("  Starting directory: " . $current_dir);
+    log_info("-" x 50);
 
     my $file_count = 0;
 
@@ -379,8 +380,9 @@ sub file_pattern_safety_checks {
     };
 
     find($wanted_sub, $current_dir);
-    print BOLD BLUE "  Validated files: " . $file_count . "\n" . RESET;
-    print "-" x 50 . "\n\n";
+    log_info("-" x 50);
+    log_info("  Validated files: $file_count");
+    log_info("-" x 50);
 }
 
 sub misc_checks {
@@ -395,11 +397,33 @@ sub check_for_file {
     my ($file) = @_;
 
     if (!-f $file) {
-        print BOLD YELLOW $file . " missing\n" . RESET;
+        log_warning("$file missing");
     }
     else {
         my $x = `git ls-files --error-unmatch $file`;
-        print BOLD YELLOW $file . " is not in repository\n" . RESET if $?;
+        log_warning("$file is not in repository") if $?;
     }
 }
 
+sub log_info {
+    my ($message, $color) = @_;
+    $color ||= CYAN;
+    print BOLD $color . "$message" . RESET . "\n";
+}
+
+sub log_warning {
+    my ($message) = @_;
+    print BOLD YELLOW "$message" . RESET . "\n";
+}
+
+sub log_error {
+    my ($message) = @_;
+    print BOLD RED "$message" . RESET . "\n";
+}
+
+sub log_success {
+    my ($message) = @_;
+    print BOLD GREEN "$message" . RESET . "\n";
+}
+
+__END__
