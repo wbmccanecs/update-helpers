@@ -12,91 +12,93 @@ use Cwd 'cwd', 'abs_path';
 my $start_directory = '.';
 my $remove_if_exists = {
     "EnvironmentHelper" => "remove",
-    "FilterConfig" => "remove",
+    "FilterConfig"      => "remove",
 };
 my $java_patterns = {
-    "org\\.apache\\.commons\\.lang\\." => "commons-lang",
-    "org\\.apache\\.commons\\.collections\\." => "commons-collections",
-    "com\\.ibm\\.mq\\.jms" => "IBM MQ JMS",
-    "WebMvcConfigurerAdapter" => "WebMvcConfigurerAdapter",
-    "MappingJacksonJsonView *get" => "MappingJacksonJsonView",
+    "org\\.apache\\.commons\\.lang\\."                                                                                                                               => "commons-lang",
+    "org\\.apache\\.commons\\.collections\\."                                                                                                                        => "commons-collections",
+    "com\\.ibm\\.mq\\.jms"                                                                                                                                           => "IBM MQ JMS",
+    "WebMvcConfigurerAdapter"                                                                                                                                        => "WebMvcConfigurerAdapter",
+    "MappingJacksonJsonView *get"                                                                                                                                    => "MappingJacksonJsonView",
     'import *javax\.(?!cache|crypto|mail|management|naming|net|sql|xml\.(?>XMLConstants|catalog|datatype|namespace|parsers|stream|transform|validation|xpath))(\w+)' => 'javax.$1',
-    "RequestMappingHandlerAdapter *request" => "rename to createRequestMappingHandlerAdapter",
-    "HandlerInterceptorAdapter" => "HandlerInterceptorAdapter",
-    "org.apache.http.client" => "httpcomponents",
-    "org.apache.commons.httpclient" => "httpcomponents",
-    "DefaultHttpRequestRetryStrategy" => "retry strategies",
-    "getPatternsCondition" => "test-harness",
-    "swagger" => "swagger",
-    "\@Api" => "swagger",
-    "springfox" => "springfox",
-    "(MQ_QMGRNAME|MgicQueueConnectionFactory.setCluster)" => "MQCLUSTER",
-    "(?<!Service)\\.findOne\\(\\w+\\)" => "refactor to use findById()",
-    "org\\.\\apereo\\." => "remove Apereo CAS",
-    "ExtranetAuthorizationFilter" => "replace with EmployeeFormBasedAuthFilterForLDAP",
-    "isAuthorizedUser" => "replace with manageAuthorizedUser",
-    "EmployeeLdapHelper[^V]" => "remove EmployeeLdapHelper",
-    "(ticketValidation|authentication)Filter" => "remove ticketValidation and authentication filters",
-    '\.setApplicationId\(\D[_\w]+\)' => "convert from setApplicationId() to setUrl()",
-    "\@DependsOn" => "replace \@DependsOn with DI",
-    "com.mgic.(spring|system).Environment" => "refactor to use environment properties",
-    "import [\\w\\.]+\.EnvironmentHelper" => "import mgic.com.spring.Environment",
-    "EnvironmentHelper" => "refactor to use Environment component",
-    'ConnectModuleDataSource' => 'refactor to CyberArkDatasource',
-    '@EnableWebMvc' => 'remove EnableWebMvc annotation',
-    '\.getConnectInfo\W' => 'replace with getConnectInfoForURL',
-    'import org.powermock' => 'remove powermock',
-    'import +org.apache.log4j.Logger' => 'remove old log4j',
-    'new (Integer|Short|Long|Byte)[^\w]' => 'fix $1 boxing',
-    '\.(setRemovedAbandoned)\(' => 'replace $1 with setRemoveAbandonedOnMaintenance',
-    '\.(setTimeBetweenEvictionRunsMillis)\(' => 'replace $1 with setDurationBetweenEvictionRuns',
-    '\.(setRemoveAbandonedTimeout)\((\d+)' => 'replace $1($2) with $1(Duration)',
-    '\.(setMaxWait)\((\d+)' => 'replace $1($) with $1(Duration)',
-    '@EnableMBeanExport' => 'remove @EnableMBeanExport',
-    '(CommonsMultipartResolver)' => 'replace $1 with StandardServletMultipartResolver',
-    '(\w*JdbcTemplate)' => '$1',
-    'BigDecimal.*getResult' => 'query returns BigDecimal',
-    'filter\.PageFilter' => 'replace PageFilter with SiteMeshFilter',
-    'com\.mgic\.business\.aims\.' => 'use aimservice-client.jar',
-    'org\.hibernate\.annotations\.Named' => 'use JPA NamedNativeQuery',
+    "RequestMappingHandlerAdapter *request"                                                                                                                          => "rename to createRequestMappingHandlerAdapter",
+    "HandlerInterceptorAdapter"                                                                                                                                      => "HandlerInterceptorAdapter",
+    "org.apache.http.client"                                                                                                                                         => "httpcomponents",
+    "org.apache.commons.httpclient"                                                                                                                                  => "httpcomponents",
+    "DefaultHttpRequestRetryStrategy"                                                                                                                                => "retry strategies",
+    "getPatternsCondition"                                                                                                                                           => "test-harness",
+    "swagger"                                                                                                                                                        => "swagger",
+    "\@Api"                                                                                                                                                          => "swagger",
+    "springfox"                                                                                                                                                      => "springfox",
+    "(MQ_QMGRNAME|MgicQueueConnectionFactory.setCluster)"                                                                                                            => "MQCLUSTER",
+    "(?<!Service)\\.findOne\\(\\w+\\)"                                                                                                                               => "refactor to use findById()",
+    "org\\.\\apereo\\."                                                                                                                                              => "remove Apereo CAS",
+    "ExtranetAuthorizationFilter"                                                                                                                                    => "replace with EmployeeFormBasedAuthFilterForLDAP",
+    "isAuthorizedUser"                                                                                                                                               => "replace with manageAuthorizedUser",
+    "EmployeeLdapHelper[^V]"                                                                                                                                         => "remove EmployeeLdapHelper",
+    "(ticketValidation|authentication)Filter"                                                                                                                        => "remove ticketValidation and authentication filters",
+    '\.setApplicationId\(\D[_\w]+\)'                                                                                                                                 => "convert from setApplicationId() to setUrl()",
+    "\@DependsOn"                                                                                                                                                    => "replace \@DependsOn with DI",
+    "com.mgic.(spring|system).Environment"                                                                                                                           => "refactor to use environment properties",
+    "import [\\w\\.]+\.EnvironmentHelper"                                                                                                                            => "import mgic.com.spring.Environment",
+    "EnvironmentHelper"                                                                                                                                              => "refactor to use Environment component",
+    'ConnectModuleDataSource'                                                                                                                                        => 'refactor to CyberArkDatasource',
+    '@EnableWebMvc'                                                                                                                                                  => 'remove EnableWebMvc annotation',
+    '\.getConnectInfo\W'                                                                                                                                             => 'replace with getConnectInfoForURL',
+    'import org.powermock'                                                                                                                                           => 'remove powermock',
+    'import +org.apache.log4j.Logger'                                                                                                                                => 'remove old log4j',
+    'new (Integer|Short|Long|Byte)[^\w]'                                                                                                                             => 'fix $1 boxing',
+    '\.(setRemovedAbandoned)\('                                                                                                                                      => 'replace $1 with setRemoveAbandonedOnMaintenance',
+    '\.(setTimeBetweenEvictionRunsMillis)\('                                                                                                                         => 'replace $1 with setDurationBetweenEvictionRuns',
+    '\.(setRemoveAbandonedTimeout)\((\d+)'                                                                                                                           => 'replace $1($2) with $1(Duration)',
+    '\.(setMaxWait)\((\d+)'                                                                                                                                          => 'replace $1($) with $1(Duration)',
+    '@EnableMBeanExport'                                                                                                                                             => 'remove @EnableMBeanExport',
+    '(CommonsMultipartResolver)'                                                                                                                                     => 'replace $1 with StandardServletMultipartResolver',
+    '(\w*JdbcTemplate)'                                                                                                                                              => '$1',
+    'BigDecimal.*getResult'                                                                                                                                          => 'query returns BigDecimal',
+    'filter\.PageFilter'                                                                                                                                             => 'replace PageFilter with SiteMeshFilter',
+    'com\.mgic\.business\.aims\.'                                                                                                                                    => 'use aimservice-client.jar',
+    'org\.hibernate\.annotations\.Named'                                                                                                                             => 'use JPA NamedNativeQuery',
+    '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?([a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_\.]+)\s+\w+(?:\s*[=;,])'                        => 'FQCN member declaration: $1',
+    '^(?:[^/]|/(?!/))*?\bnew\s+([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)\s*\('                                                                                     => 'FQCN construction: $1',
 };
 my $xml_patterns = {
-    "org\\.jasig" => "jasig CAS",
-    "org\\.apereo\\.cas" => "remove apereo CAS",
-    "<buildFile[^>]* />" => "missing add-opens",
-    "<bean" => "move beans to java config",
-    "JDK_(?!21)" => "JDK",
-    "http://java.sun.com/xml/ns/javaee" => "upgrade to jakarta 6.0",
+    "org\\.jasig"                                     => "jasig CAS",
+    "org\\.apereo\\.cas"                              => "remove apereo CAS",
+    "<buildFile[^>]* />"                              => "missing add-opens",
+    "<bean"                                           => "move beans to java config",
+    "JDK_(?!21)"                                      => "JDK",
+    "http://java.sun.com/xml/ns/javaee"               => "upgrade to jakarta 6.0",
     "Extranet(Authentication|TicketValidation)Filter" => "remove extranet filters",
-    "(ticketValidation|authentication)Filter" => "remove ticketValidation and authentication filters",
-    "nagios" => "remove nagios from security groups",
-    'mgic.entity.revision=\d+' => "check mgic.entity.revision",
+    "(ticketValidation|authentication)Filter"         => "remove ticketValidation and authentication filters",
+    "nagios"                                          => "remove nagios from security groups",
+    'mgic.entity.revision=\d+'                        => "check mgic.entity.revision",
 };
 my $iml_patterns = {
-    '"MQ"' => 'use tomcat10 library',
+    '"MQ"'                 => 'use tomcat10 library',
     'jdkName="(?!21)(.*)"' => "JDK",
 };
 my $jsp_patterns = {
-    "javax\\.servlet\\.jsp" => "javax JSP API",
+    "javax\\.servlet\\.jsp"                           => "javax JSP API",
     "(http://java.sun.com/jsp|https://www.owasp.org)" => "old taglibs",
-    "<enc:forJavaScriptBlockvalue" => "enc:forJavaScriptBlockvalue",
-    "<form:form.*commandName=" => "commandName",
+    "<enc:forJavaScriptBlockvalue"                    => "enc:forJavaScriptBlockvalue",
+    "<form:form.*commandName="                        => "commandName",
 };
 my $js_patterns = {
     '^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => 'not sanitized $3',
 };
 my $properties_patterns = {
-    "content.ts.mgicint.net" => "static content",
+    "content.ts.mgicint.net"         => "static content",
     "(rd|qa).content.mgic.(com|net)" => "static content",
-    "ojdbc8.jat" => "move ojdbc8 driver to ivy.xml",
+    "ojdbc8.jat"                     => "move ojdbc8 driver to ivy.xml",
 };
 my $yaml_patterns = {
-    "core.yml" => "upgrade for java21",
+    "core.yml"       => "upgrade for java21",
     "BUILD\\.DEPLOY" => "upgrade for java21",
 };
 my $sh_patterns = {
     "umask *022" => "update setenv.sh",
-    "/jre/" => "fix cacerts folder",
+    "/jre/"      => "fix cacerts folder",
 };
 my $file_patterns = {
     '.gitignore' => {
@@ -122,8 +124,8 @@ my $checks;
 my ($help);
 
 GetOptions(
-    "dir|d=s"   => \$start_directory,
-    "help|h"    => \$help,
+    "dir|d=s" => \$start_directory,
+    "help|h"  => \$help,
 ) or usage();
 
 if ($help) {
@@ -158,7 +160,7 @@ file_pattern_safety_checks($start_directory, $file_patterns) if $checks->{files}
 misc_checks($start_directory) if $checks->{misc} || $checkAll;
 for my $m (@unwanted) {
     if (-e $m) {
-        print BOLD RED "remove " . $m . RESET ."\n";
+        print BOLD RED "remove " . $m . RESET . "\n";
     }
 }
 
@@ -199,19 +201,19 @@ sub safety_check {
 
             if (
                 $full_path_relative =~ '.*/.git' ||
-                $full_path_relative =~ '.*/target' ||
-                $full_path_relative =~ '.*/build' ||
-                $full_path_relative =~ '.*/node_modules' ||
-                $full_path_relative =~ '.*/bin' ||
-                $full_path_relative =~ '.*/out' ||
-                $full_path_relative =~ '.*/deploy' ||
-                $full_path_relative =~ '.*/reports' ||
-                $full_path_relative =~ '.*/test-automation' ||
-                $full_path_relative =~ '.*/test-bin' ||
-                $full_path_relative =~ '.*/war/META-INF' ||
-                $full_path_relative =~ '.*/war/WEB-INF/classes' ||
-                $full_path_relative =~ '.*/war/WEB-INF/lib' ||
-                $full_path_relative =~ '.*/.settings' # Eclipse project files
+                    $full_path_relative =~ '.*/target' ||
+                    $full_path_relative =~ '.*/build' ||
+                    $full_path_relative =~ '.*/node_modules' ||
+                    $full_path_relative =~ '.*/bin' ||
+                    $full_path_relative =~ '.*/out' ||
+                    $full_path_relative =~ '.*/deploy' ||
+                    $full_path_relative =~ '.*/reports' ||
+                    $full_path_relative =~ '.*/test-automation' ||
+                    $full_path_relative =~ '.*/test-bin' ||
+                    $full_path_relative =~ '.*/war/META-INF' ||
+                    $full_path_relative =~ '.*/war/WEB-INF/classes' ||
+                    $full_path_relative =~ '.*/war/WEB-INF/lib' ||
+                    $full_path_relative =~ '.*/.settings' # Eclipse project files
             ) {
                 $File::Find::prune = 1; # Don't traverse into this directory
                 return;
@@ -251,20 +253,27 @@ sub check_single_file {
     };
 
     my $line_num = 0;
-    my $file_has_match = 0;
+    my %pattern_found; # Track which patterns have been reported
+    my $patterns_count = scalar keys %$compiled_patterns;
+    my $found_count = 0;
 
     while (my $line = <$fh>) {
-        $line_num ++;
+        $line_num++;
         for my $pattern_regex_key (keys %$compiled_patterns) {
+            # Skip if this pattern has already been reported
+            next if $pattern_found{$pattern_regex_key};
+
             if ($line =~ $compiled_patterns->{$pattern_regex_key}) {
-                $file_has_match = 1;
+                $pattern_found{$pattern_regex_key} = 1;
+                $found_count++;
                 my $output_string = $patterns_ref->{$pattern_regex_key};
                 my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-                $output_string =~ s/\$(\d+)/$matches[$1-1]/ge;
+                $output_string =~ s/\$(\d+)/$matches[$1 - 1]/ge;
                 print BOLD YELLOW "$file_path_display " . $output_string . "\n" . RESET;
             }
         }
-        last if $file_has_match;
+        # Stop early if all patterns have been found
+        last if $found_count == $patterns_count;
     }
     close $fh;
 
@@ -284,7 +293,8 @@ sub file_pattern_safety_checks {
         eval {
             if ($wildcard =~ m#/#) {
                 $compiled_wildcards{$wildcard} = qr/(?:^|\/)$regex_str$/;
-            } else {
+            }
+            else {
                 $compiled_wildcards{$wildcard} = qr/^$regex_str$/;
             }
         };
@@ -321,19 +331,19 @@ sub file_pattern_safety_checks {
 
             if (
                 $full_path_relative =~ '.*/.git' ||
-                $full_path_relative =~ '.*/target' ||
-                $full_path_relative =~ '.*/build' ||
-                $full_path_relative =~ '.*/node_modules' ||
-                $full_path_relative =~ '.*/bin' ||
-                $full_path_relative =~ '.*/out' ||
-                $full_path_relative =~ '.*/deploy' ||
-                $full_path_relative =~ '.*/reports' ||
-                $full_path_relative =~ '.*/test-automation' ||
-                $full_path_relative =~ '.*/test-bin' ||
-                $full_path_relative =~ '.*/war/META-INF' ||
-                $full_path_relative =~ '.*/war/WEB-INF/classes' ||
-                $full_path_relative =~ '.*/war/WEB-INF/lib' ||
-                $full_path_relative =~ '.*/.settings' # Eclipse project files
+                    $full_path_relative =~ '.*/target' ||
+                    $full_path_relative =~ '.*/build' ||
+                    $full_path_relative =~ '.*/node_modules' ||
+                    $full_path_relative =~ '.*/bin' ||
+                    $full_path_relative =~ '.*/out' ||
+                    $full_path_relative =~ '.*/deploy' ||
+                    $full_path_relative =~ '.*/reports' ||
+                    $full_path_relative =~ '.*/test-automation' ||
+                    $full_path_relative =~ '.*/test-bin' ||
+                    $full_path_relative =~ '.*/war/META-INF' ||
+                    $full_path_relative =~ '.*/war/WEB-INF/classes' ||
+                    $full_path_relative =~ '.*/war/WEB-INF/lib' ||
+                    $full_path_relative =~ '.*/.settings' # Eclipse project files
             ) {
                 $File::Find::prune = 1; # Don't traverse into this directory
                 return;
@@ -350,7 +360,8 @@ sub file_pattern_safety_checks {
             my $matches_wildcard = 0;
             if ($wildcard =~ m#/#) {
                 $matches_wildcard = ($path_to_match =~ $compiled_wildcards{$wildcard});
-            } else {
+            }
+            else {
                 $matches_wildcard = ($filename_to_match =~ $compiled_wildcards{$wildcard});
             }
 
@@ -383,10 +394,11 @@ sub misc_checks {
 sub check_for_file {
     my ($file) = @_;
 
-    if (! -f $file) {
+    if (!-f $file) {
         print BOLD YELLOW $file . " missing\n" . RESET;
-    } else {
-        my $x=`git ls-files --error-unmatch $file`;
+    }
+    else {
+        my $x = `git ls-files --error-unmatch $file`;
         print BOLD YELLOW $file . " is not in repository\n" . RESET if $?;
     }
 }
