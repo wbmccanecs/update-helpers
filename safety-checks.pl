@@ -59,8 +59,8 @@ my $java_patterns = {
     'filter\.PageFilter'                                                                                                                                             => 'replace PageFilter with SiteMeshFilter',
     'com\.mgic\.business\.aims\.'                                                                                                                                    => 'use aimservice-client.jar',
     'org\.hibernate\.annotations\.Named'                                                                                                                             => 'use JPA NamedNativeQuery',
-    '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?([a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_\.]+)\s+\w+(?:\s*[=;,])'                        => 'FQCN member declaration: $1',
-    '^(?:[^/]|/(?!/))*?\bnew\s+([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)\s*\('                                                                                     => 'FQCN construction: $1',
+    '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?([a-z][a-zA-Z0-9_]*\.[a-zA-Z0-9_\.]+)\s+\w+(?:\s*[=;,])'                           => 'FQCN member declaration: $1',
+    '^(?:[^/]|/(?!/))*?\bnew\s+([a-z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)\s*\('                                                                                        => 'FQCN construction: $1',
 };
 my $xml_patterns = {
     "org\\.jasig"                                     => "jasig CAS",
