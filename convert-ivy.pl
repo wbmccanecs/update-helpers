@@ -10,7 +10,7 @@ use Cwd 'abs_path';
 use Term::ANSIColor qw{:constants};
 use version;
 
-my ($help, $hibernate5, $no_ui, $audit_deps) = (0) x 4;
+my ($help, $hibernate5, $no_ui, $audit_deps, $verbose) = (0) x 5;
 
 for my $arg (@ARGV) {
     my $key = lc($arg);
@@ -18,6 +18,7 @@ for my $arg (@ARGV) {
     $hibernate5 = 1 if $key eq "5" || $key eq "--hibernate5";
     $no_ui = 1 if $key eq "noui" || $key eq "headless" || $key eq "--no-ui";
     $audit_deps = 1 if $key eq "audit" || $key eq "--audit-deps";
+    $verbose = 1 if $key eq "-v" || $key eq "--verbose";
 }
 
 if ($help) {
@@ -36,12 +37,18 @@ sub main {
     my $output_file = "ivy.xml.new";
     my $deps_file = ".deps";
 
+    # Load persistent flat file JAR class index
+    load_jar_class_index();
+
     my $libdir = (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
 
-    my @src_dirs = ('src', 'test');
+    my @src_dirs = ('src', 'test', 'deploy');
 
     log_error("Both mgic-entity-custom.jar and mgic-entity-master.jar exist. Please remove one of them.")
         if -e "$libdir/mgic-entity-custom.jar" && -e "$libdir/mgic-entity-master.jar";
+
+    # Extract base packages from Spring annotations
+    my @base_packages = extract_base_packages(\@src_dirs);
 
     if ($audit_deps) {
         log_file_check($libdir);
@@ -49,11 +56,11 @@ sub main {
         my @external_sources = load_mgic_src_mappings($libdir);
         push @src_dirs, @external_sources;
 
-        my ($unused_ref, $used_ref) = audit_dependencies(\@src_dirs, $libdir);
+        my ($unused_ref, $used_ref) = audit_dependencies(\@src_dirs, $libdir, \@base_packages);
         %unused_deps_to_drop = %$unused_ref;
     }
 
-    my %used_deps_to_keep = extract_all_referenced_packages(\@src_dirs, (-d 'war' ? 'war' : undef));
+    my %used_deps_to_keep = extract_all_referenced_packages(\@src_dirs, (-d 'war' ? 'war' : undef), \@base_packages);
 
     my @remove_packages = (
         "commons-httpclient",
@@ -125,13 +132,15 @@ sub main {
     }
     close($in);
 
+    my $changes_made = 0;
+    check_and_inject_smtp_dependencies(\$file_content, \$changes_made, \@src_dirs, $update);
+
     # Pre-scan ivy.xml to track direct dependencies
     my %present_deps;
     while ($file_content =~ /<dependency\s+(?:[^>]*?\s+)?name="([^"]+)"/g) {
         $present_deps{$1} = 1;
     }
 
-    my $changes_made = 0;
     # ------------------------------------------------------------------
     # STAGE 1: IN-PLACE UPDATES (Preserves existing <exclude> tags in $file_content)
     # ------------------------------------------------------------------
@@ -169,11 +178,11 @@ sub main {
             log_warning("Keep $dep_name");
             $replacement_str = $leading_whitespace . $dependency_block;
         }
-        elsif (grep {$dep_name =~ $_} @remove_packages && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
+        elsif (grep {$dep_name =~ $_} @remove_packages && !($update->{$dep_name} && ($update->{$dep_name}->{keep} || $update->{$dep_name}->{snyk}))) {
             log_info("Remove $dep_name");
             $changes_made += 1;
         }
-        elsif ($unused_deps_to_drop{$dep_name} && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
+        elsif ($unused_deps_to_drop{$dep_name} && !($update->{$dep_name} && ($update->{$dep_name}->{keep} || $update->{$dep_name}->{snyk}))) {
             log_info("Remove unused dependency $dep_name (no active imports in src/)");
             $changes_made += 1;
         }
@@ -204,7 +213,7 @@ sub main {
 
                 if (!$should_keep_rev) {
                     foreach my $key (keys %$update_entry_ref) {
-                        next if $key eq "keep";
+                        next if $key eq "keep" or $key eq "snyk";
                         my $new_val = $update_entry_ref->{$key};
                         $new_val = $current_rev if $key eq 'rev' && $should_keep_rev;
 
@@ -266,6 +275,12 @@ sub main {
     # ------------------------------------------------------------------
     my %global_excludes = extract_global_exclusions($file_content);
     my $remove_redundant_transitives_versioned = generate_transitive_map_from_deps($deps_file);
+
+    # Now detect unused dependencies (after transitive map is available)
+    my $unused_by_scope_ref = find_unused_dependencies($file_content, \%used_deps_to_keep, $update, \@remove_packages, $keep_if_exists, \@packages, $remove_redundant_transitives_versioned, $libdir);
+    for my $unused_dep (keys %$unused_by_scope_ref) {
+        $unused_deps_to_drop{$unused_dep} = 1;
+    }
 
     # Compute surviving direct dependencies
     my %surviving_deps;
@@ -472,11 +487,225 @@ sub version_compare {
     return 0;
 }
 
+my %JAR_CACHE;  # $jar_name -> { classes => {}, packages => {}, prefixes => {} }
+my %KNOWN_JARS; # $jar_name -> 1
+
+sub load_jar_class_index {
+    my $script_dir = $FindBin::RealBin;
+    my $index_file = "$script_dir/jar-class-index.txt";
+    return unless -f $index_file;
+
+    open(my $fh, '<', $index_file) or return;
+    my $loaded_count = 0;
+
+    while (my $line = <$fh>) {
+        $line =~ s/[\r\n]*//g;
+        $line =~ s/\s*#.*$//; # skip comments
+        next if $line =~ /^\s*$/;
+
+        my ($jar_name, $fqcn) = split(/\s*\|\s*/, $line, 2);
+        next unless defined $jar_name && defined $fqcn && $jar_name ne '' && $fqcn ne '';
+        next if $fqcn =~ /\$/;
+
+        $jar_name = lc($jar_name);
+        $KNOWN_JARS{$jar_name} = 1;
+
+        $JAR_CACHE{$jar_name} ||= {
+            classes  => {},
+            packages => {},
+            prefixes => {},
+        };
+
+        my $data = $JAR_CACHE{$jar_name};
+        $data->{classes}{$fqcn} = 1;
+
+        my $clean_fqcn = $fqcn;
+        $clean_fqcn =~ s/\$.*//;
+        $data->{classes}{$clean_fqcn} = 1;
+
+        if ($clean_fqcn =~ /^(.*)\.[^\.]+$/) {
+            my $pkg = $1;
+            $data->{packages}{$pkg} = 1;
+
+            my @parts = split(/\./, $pkg);
+            for (my $i = 2; $i <= scalar(@parts); $i++) {
+                my $prefix = join('.', @parts[0 .. $i - 1]);
+                $data->{prefixes}{$prefix} = 1;
+            }
+        }
+        $loaded_count++;
+    }
+    close($fh);
+    log_info("Loaded $loaded_count class entries for " . scalar(keys %KNOWN_JARS) . " JAR(s) from jar-class-index.txt") if $loaded_count > 0 && $verbose;
+}
+
+sub save_jar_to_class_index {
+    my ($jar_name, $fqcns_ref) = @_;
+    return unless defined $jar_name && defined $fqcns_ref;
+
+    my $script_dir = $FindBin::RealBin;
+    my $index_file = "$script_dir/jar-class-index.txt";
+
+    open(my $fh, '>>', $index_file) or do {
+        log_warning("Could not open $index_file for writing: $!");
+        return;
+    };
+
+    if (@$fqcns_ref) {
+        for my $fqcn (@$fqcns_ref) {
+            print $fh "$jar_name|$fqcn\n";
+        }
+    }
+    else {
+        print $fh "$jar_name|fake.class.Name\n";
+    }
+
+    close($fh);
+    log_info("Persisted " . scalar(@$fqcns_ref) . " class entries for '$jar_name' to jar-class-index.txt");
+}
+
+sub extract_jar_classes_and_packages {
+    my ($jar_path) = @_;
+    my $jar_name = lc(basename($jar_path));
+
+    # 1. Return cached index if already loaded from flat file or scanned earlier
+    if (exists $KNOWN_JARS{$jar_name} && exists $JAR_CACHE{$jar_name}) {
+        return $JAR_CACHE{$jar_name};
+    }
+
+    my %classes;
+    my %packages;
+    my %prefixes;
+    my @extracted_fqcns;
+
+    $JAR_CACHE{$jar_name} = {
+        classes  => \%classes,
+        packages => \%packages,
+        prefixes => \%prefixes,
+    };
+    $KNOWN_JARS{$jar_name} = 1;
+
+    return $JAR_CACHE{$jar_name} unless -f $jar_path;
+
+    my @entry_paths;
+
+    log_info("Extracting jar classes: " . $jar_path);
+    eval {
+        require Archive::Zip;
+        my $zip = Archive::Zip->new();
+        if ($zip->read($jar_path) == Archive::Zip::AZ_OK()) {
+            for my $member ($zip->members()) {
+                push @entry_paths, $member->fileName();
+            }
+        }
+    };
+
+    if (!@entry_paths) {
+        if (my @jar_entries = `jar tf "$jar_path" 2>/dev/null`) {
+            @entry_paths = map {s/[\r\n]*//g;
+                $_} @jar_entries;
+        }
+        elsif (my @unzip_entries = `unzip -Z1 "$jar_path" 2>/dev/null`) {
+            @entry_paths = map {s/[\r\n]*//g;
+                $_} @unzip_entries;
+        }
+    }
+
+    for my $entry (@entry_paths) {
+        if ($entry =~ /^([a-zA-Z0-9_\/\$]+)\.class$/i) {
+            my $path = $1;
+            next if $path =~ /(?:module-info|package-info)$/i;
+            next if $path =~ /\$/; # Skip inner and anonymous classes containing '$'
+
+            my $fqcn = $path;
+            $fqcn =~ s#/#.#g;
+
+            push @extracted_fqcns, $fqcn;
+            $classes{$fqcn} = 1;
+
+            if ($fqcn =~ /^(.*)\.[^\.]+$/) {
+                my $pkg = $1;
+                $packages{$pkg} = 1;
+
+                my @parts = split(/\./, $pkg);
+                for (my $i = 2; $i <= scalar(@parts); $i++) {
+                    my $prefix = join('.', @parts[0 .. $i - 1]);
+                    $prefixes{$prefix} = 1;
+                }
+            }
+        }
+    }
+
+    # Save to flat file for future runs
+    save_jar_to_class_index($jar_name, \@extracted_fqcns);
+
+    return $JAR_CACHE{$jar_name};
+}
+
+sub find_jars_for_dependency {
+    my ($dep_name, $update_ref, $libdir) = @_;
+    my @found_jars;
+
+    my $entry = $update_ref->{$dep_name} if $update_ref;
+    my $name = ($entry && $entry->{name}) ? $entry->{name} : $dep_name;
+    my $org = $entry->{org} if $entry;
+
+    my @search_dirs;
+    $libdir ||= (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
+    push @search_dirs, $libdir if -d $libdir;
+
+    my %seen_jars;
+
+    for my $dir (@search_dirs) {
+        find({
+            wanted   => sub {
+                return unless -f $_ && $_ =~ /\.jar$/i;
+                my $jar_path = $_;
+                my $jar_name = lc(basename($jar_path));
+
+                if ($jar_name =~ /^\Q$dep_name\E(?:-[0-9].*|\.jar)$/i ||
+                    $jar_name =~ /^\Q$name\E(?:-[0-9].*|\.jar)$/i ||
+                    ($org && $jar_name =~ /^\Q$org\E[.-]\Q$name\E(?:-[0-9].*|\.jar)$/i)) {
+                    if (!$seen_jars{$jar_path}) {
+                        push @found_jars, $jar_path;
+                        $seen_jars{$jar_path} = 1;
+                    }
+                }
+            },
+            no_chdir => 1,
+        }, $dir);
+    }
+
+    return @found_jars;
+}
+
 sub is_dep_used {
-    my ($dep_name, $update_ref, $used_deps_ref) = @_;
+    my ($dep_name, $update_ref, $used_deps_ref, $libdir) = @_;
     return 0 unless defined $dep_name && defined $used_deps_ref && %$used_deps_ref;
 
     return 1 if exists $used_deps_ref->{$dep_name};
+
+    $libdir ||= (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
+
+    # 1. DIRECT JAR INSPECTION: Look inside matching JAR file(s) and extract classes
+    my @matching_jars = find_jars_for_dependency($dep_name, $update_ref, $libdir);
+    if (@matching_jars) {
+        for my $jar_path (@matching_jars) {
+            my $jar_data = extract_jar_classes_and_packages($jar_path);
+            my $classes_ref = $jar_data->{classes};
+            my $packages_ref = $jar_data->{packages};
+            my $prefixes_ref = $jar_data->{prefixes};
+
+            for my $ref_pkg (keys %$used_deps_ref) {
+                if (exists $classes_ref->{$ref_pkg} ||
+                    exists $packages_ref->{$ref_pkg} ||
+                    exists $prefixes_ref->{$ref_pkg}) {
+                    # log_info("JAR inspection verified '$dep_name' is USED (found '$ref_pkg' inside " . basename($jar_path) . ")");
+                    return 1;
+                }
+            }
+        }
+    }
 
     my $entry = $update_ref->{$dep_name} if $update_ref;
     my $org = $entry->{org} if $entry;
@@ -521,8 +750,118 @@ sub is_dep_used {
     return 0;
 }
 
+sub find_unused_dependencies {
+    my ($file_content, $used_deps_ref, $update_ref, $remove_packages_ref, $keep_if_exists_ref, $packages_ref, $transitive_map_ref, $libdir) = @_;
+    my %unused_deps;
+
+    log_info("Analyzing declared dependencies against actual usage...");
+
+    # Extract all declared dependencies and their current revisions from ivy.xml (order-agnostic)
+    my %all_declared_deps;
+    while ($file_content =~ /<dependency\b([^>]+)>/g) {
+        my $attrs = $1;
+        my $name = $1 if $attrs =~ /\bname="([^"]+)"/;
+        my $rev = $1 if $attrs =~ /\brev="([^"]+)"/;
+        if (defined $name) {
+            $all_declared_deps{$name} = $rev // '';
+        }
+    }
+
+    my %kept_deps;
+
+    # PASS 1: Identify all directly used, explicitly kept, keep=1, snyk dependencies
+    for my $dep_name (keys %all_declared_deps) {
+        # Check keep=1 flag in revision-updates.txt
+        if ($update_ref && exists $update_ref->{$dep_name} && $update_ref->{$dep_name}->{keep}) {
+            log_info("Keeping dependency '$dep_name' (flagged keep=1 in revision-updates.txt)");
+            $kept_deps{$dep_name} = 1;
+            next;
+        }
+
+        # Check snyk=SNYK flag in revision-updates.txt
+        if ($update_ref && exists $update_ref->{$dep_name} && $update_ref->{$dep_name}->{snyk}) {
+            log_info("Keeping dependency '$dep_name' (resolvesg snyk=$update_ref->{$dep_name}->{snyk} in revision-updates.txt)");
+            $kept_deps{$dep_name} = 1;
+            next;
+        }
+
+        # Check keep_if_exists rule
+        if ($keep_if_exists_ref && exists $keep_if_exists_ref->{$dep_name}) {
+            if (grep {$keep_if_exists_ref->{$dep_name} eq $_} @$packages_ref) {
+                $kept_deps{$dep_name} = 1;
+                next;
+            }
+        }
+
+        # Skip explicit removal list
+        if ($remove_packages_ref && grep {$dep_name =~ $_} @$remove_packages_ref) {
+            next;
+        }
+
+        # Check if dependency or its JAR classes are directly referenced in source code
+        if (is_dep_used($dep_name, $update_ref, $used_deps_ref, $libdir)) {
+            $kept_deps{$dep_name} = 1;
+        }
+    }
+
+    # PASS 2: Evaluate remaining dependencies against transitives of ALL kept parents
+    for my $dep_name (keys %all_declared_deps) {
+        next if $kept_deps{$dep_name};
+        next if ($remove_packages_ref && grep {$dep_name =~ $_} @$remove_packages_ref);
+
+        my $is_transitive = 0;
+        my $is_version_override = 0;
+
+        if ($transitive_map_ref && %$transitive_map_ref) {
+            for my $parent_dep (keys %kept_deps) {
+                if (exists $transitive_map_ref->{$parent_dep} &&
+                    exists $transitive_map_ref->{$parent_dep}->{$dep_name}) {
+
+                    $is_transitive = 1;
+
+                    # Get effective direct revision vs transitive revision
+                    my $direct_rev = $update_ref->{$dep_name}->{rev} if (exists $update_ref->{$dep_name});
+                    $direct_rev ||= $all_declared_deps{$dep_name};
+
+                    my $transitive_rev = $transitive_map_ref->{$parent_dep}->{$dep_name};
+
+                    # If direct version > transitive version (e.g. 3.0.0 > 2.0.0), KEEP direct dependency
+                    if (defined $direct_rev && defined $transitive_rev && $direct_rev ne '' && $transitive_rev ne '') {
+                        if (version_compare($direct_rev, $transitive_rev) > 0) {
+                            $is_version_override = 1;
+                            log_success("Keeping direct dependency $dep_name ($direct_rev > $transitive_rev via parent '$parent_dep') to enforce version override");
+                            last;
+                        }
+                    }
+                }
+            }
+        }
+
+        # Keep if it's a higher version override; drop only if fully satisfied at equal/lower version
+        if ($is_version_override) {
+            $kept_deps{$dep_name} = 1;
+        }
+        elsif ($is_transitive) {
+            $kept_deps{$dep_name} = 1;
+        }
+        else {
+            $unused_deps{$dep_name} = 1;
+        }
+    }
+
+    if (keys %unused_deps) {
+        log_warning("Found " . scalar(keys %unused_deps) . " unused dependencies: " . join(", ", sort keys %unused_deps));
+    }
+    else {
+        log_info("All declared dependencies are in use.");
+    }
+
+    return \%unused_deps;
+}
+
 sub should_remove_transitive {
     my ($dep_name, $current_rev, $update_ref, $used_deps_ref, $surviving_deps_ref, $remove_redundant_transitives_versioned) = @_;
+
     return 0 unless defined $current_rev;
     return 0 unless defined $remove_redundant_transitives_versioned
         && ref($remove_redundant_transitives_versioned) eq 'HASH';
@@ -532,10 +871,17 @@ sub should_remove_transitive {
         return 0;
     }
 
-    my $found_exact_match = 0;
-    my $found_version_mismatch = 0;
+    # 1a. Guardrail: Keep if 'snyk' flag is set in update hash
+    if ($update_ref && exists $update_ref->{$dep_name} && $update_ref->{$dep_name}->{snyk}) {
+        return 0;
+    }
 
-    # 2. Scan ALL surviving parents
+    my $target_rev = $update_ref->{$dep_name}->{rev} if defined $update_ref && exists $update_ref->{$dep_name};
+    my $effective_rev = $target_rev || $current_rev;
+
+    my $max_transitive_rev;
+
+    # 2. Find the HIGHEST transitive version supplied across ALL surviving parents
     for my $parent_pkg (keys %$remove_redundant_transitives_versioned) {
         if ($surviving_deps_ref && exists $surviving_deps_ref->{$parent_pkg}) {
             my $targets = $remove_redundant_transitives_versioned->{$parent_pkg};
@@ -543,46 +889,26 @@ sub should_remove_transitive {
             if (exists $targets->{$dep_name}) {
                 my $transitive_rev = $targets->{$dep_name};
 
-                my $target_rev = $update_ref->{$dep_name}->{rev} if defined $update_ref && exists $update_ref->{$dep_name};
-                my $effective_rev = $target_rev || $current_rev;
-
-                my $parent_target_rev = $update_ref->{$parent_pkg}->{rev} if defined $update_ref && exists $update_ref->{$parent_pkg};
-
-                # If parent and child share the same target revision in $update_ref, they are aligned in lockstep
-                my $cmp;
-                if (defined $target_rev && defined $parent_target_rev && $target_rev eq $parent_target_rev) {
-                    $cmp = 0;
-                }
-                else {
-                    $cmp = version_compare($effective_rev, $transitive_rev);
-                }
-
-                # NEW POLICY: 
-                # - REMOVE if direct == transitive (redundant, parent already provides it)
-                # - KEEP if direct > transitive (no exclude needed, newer version wins)
-                # - KEEP if direct < transitive (override with direct version)
-                if ($cmp > 0) {
-                    # Direct is newer - keep it to use the newer version
-                    log_success("Keeping direct dependency $dep_name ($effective_rev > $transitive_rev from parent '$parent_pkg')");
-                    return 0;
-                }
-                elsif ($cmp == 0) {
-                    # Exact match - mark for potential removal
-                    $found_exact_match = 1;
-                }
-                elsif ($cmp < 0) {
-                    # Direct is older - keep it to override with specific version
-                    log_success("Keeping direct dependency $dep_name ($effective_rev < $transitive_rev from parent '$parent_pkg') - keeping to override");
-                    return 0;
+                if (!defined $max_transitive_rev ||
+                    version_compare($transitive_rev, $max_transitive_rev) > 0) {
+                    $max_transitive_rev = $transitive_rev;
                 }
             }
         }
     }
 
-    # Only drop if we found an exact match and NO version mismatches
-    if ($found_exact_match && !$found_version_mismatch) {
-        log_info("Dropping redundant direct dependency $dep_name (Fully satisfied by surviving parents)");
-        return 1;
+    # 3. If any surviving parent provides a version >= direct version, Ivy will resolve it automatically
+    if (defined $max_transitive_rev) {
+        my $cmp = version_compare($effective_rev, $max_transitive_rev);
+
+        if ($cmp <= 0) {
+            log_info("Dropping redundant direct dependency $dep_name ($effective_rev <= $max_transitive_rev satisfied by surviving transitives)");
+            return 1;
+        }
+        else {
+            log_success("Keeping direct dependency $dep_name ($effective_rev > $max_transitive_rev across all transitives)");
+            return 0;
+        }
     }
 
     return 0;
@@ -660,7 +986,7 @@ sub get_declared_ivy_dependencies {
 }
 
 sub extract_all_referenced_packages {
-    my ($src_dirs_ref, $webapp_dir) = @_;
+    my ($src_dirs_ref, $webapp_dir, $base_packages_ref) = @_;
     my %referenced_packages;
 
     my @src_dirs = ref($src_dirs_ref) eq 'ARRAY' ? @{$src_dirs_ref} : ($src_dirs_ref);
@@ -695,6 +1021,7 @@ sub extract_all_referenced_packages {
             wanted   => sub {
                 my $file = $File::Find::name;
                 return unless -f $file && $file =~ /\.(java|xml|properties|factories)$/i;
+
                 open(my $fh, '<', $file) or return;
                 while (my $line = <$fh>) {
                     if ($line =~ /^\s*import\s+(?:static\s+)?([a-zA-Z0-9_\.\*]+)\s*;\s*$/) {
@@ -752,7 +1079,7 @@ sub extract_all_referenced_packages {
 
     # 3. Scan Mgic External Directories with Reachability Propagation
     if (@mgic_dirs) {
-        log_info("Scanning external mgic directories (" . join(', ', @mgic_dirs) . ") for reachability...");
+        log_info("Scanning external mgic directories (" . join(', ', @mgic_dirs) . ") for reachability...") if $verbose;
 
         my %mgic_class_imports; # FQCN -> { pkg => '...', imports => [...] }
 
@@ -851,7 +1178,7 @@ sub extract_all_referenced_packages {
             $referenced_packages{$imp} = 1;
         }
 
-        log_info("Reachable mgic classes: " . (scalar keys %reachable_level1) . " (Direct local), " . (scalar keys %reachable_level2) . " (1-hop indirect)");
+        log_info("Reachable mgic classes: " . (scalar keys %reachable_level1) . " (Direct local), " . (scalar keys %reachable_level2) . " (1-hop indirect)") if $verbose;
     }
 
     log_success("Extracted " . (scalar keys %referenced_packages) . " active package/class references.");
@@ -859,7 +1186,7 @@ sub extract_all_referenced_packages {
 }
 
 sub audit_dependencies {
-    my ($src_dirs, $libdir) = @_;
+    my ($src_dirs, $libdir, $base_packages_ref) = @_;
     my %unused_deps;
     my %used_deps;
     my %class_to_deps;
@@ -920,35 +1247,33 @@ sub generate_transitive_map_from_deps {
 
     open(my $fh, '<', $deps_file) or return \%dynamic_transitives;
 
-    my @stack; # Tracks the current dependency at each tree depth
+    my @stack;
 
     while (my $line = <$fh>) {
         chomp $line;
 
-        # Match the visual tree: (prefix)(connector)(org#name;version)
         if ($line =~ /^(.*?)(?:[\+\\]\-)\s*(.*?)$/) {
             my $prefix = $1;
             my $payload = $2;
 
-            # Every 3 characters of prefix (like "|  " or "   ") equals 1 level of depth
             my $depth = length($prefix) / 3;
 
-            # Parse Ivy's default format: org#name;version
-            # Safely handles trailing eviction notices like "1.0 (evicted by 2.0)"
             if ($payload =~ /([^#]+)#([^;]+);([^\s]+)/) {
+                my $org = $1;
                 my $name = $2;
                 my $rev = $3;
 
-                # Update the stack at the current depth
                 $stack[$depth] = $name;
 
-                # If we are deeper than the root, map this transitive to the top-level parent
                 if ($depth > 0 && defined $stack[0]) {
                     my $root_parent = $stack[0];
 
-                    # keep LOWER version, which ivy should resolve to
+                    # Store the LOWEST (native) version seen under this parent.
+                    # When top-level ivy.xml forces a higher version, Ivy prints both the forced
+                    # version and the native POM version under the parent. Taking the MIN version
+                    # captures the parent's true requirement.
                     if (!exists $dynamic_transitives{$root_parent}{$name} ||
-                        version_compare($rev, $dynamic_transitives{$root_parent}{$name}) <= 0) {
+                        version_compare($rev, $dynamic_transitives{$root_parent}{$name}) < 0) {
                         $dynamic_transitives{$root_parent}{$name} = $rev;
                     }
                 }
@@ -968,20 +1293,20 @@ sub generate_dynamic_exclusions_from_deps {
     # Pre-pass: Build a map of the HIGHEST direct dependency version for each module
     # This prevents unnecessary excludes when one direct version is sufficient
     my %max_direct_versions;
-    
+
     # First, try to get versions from $update_ref (updated dependencies)
     if (defined $update_ref) {
         for my $dep_name (keys %$update_ref) {
             my $rev = $update_ref->{$dep_name}->{rev};
             if (defined $rev) {
-                if (!exists $max_direct_versions{$dep_name} || 
+                if (!exists $max_direct_versions{$dep_name} ||
                     version_compare($rev, $max_direct_versions{$dep_name}) > 0) {
                     $max_direct_versions{$dep_name} = $rev;
                 }
             }
         }
     }
-    
+
     # Second, extract CURRENT revisions directly from ivy.xml for all direct dependencies
     # This catches dependencies that are not in $update_ref
     if (defined $file_content) {
@@ -992,10 +1317,10 @@ sub generate_dynamic_exclusions_from_deps {
             my $rev;
             $name = $1 if $attrs =~ /\bname="([^"]+)"/;
             $rev = $1 if $attrs =~ /\brev="([^"]+)"/;
-            
+
             if (defined $name && defined $rev) {
                 # Use the version from ivy.xml if it's higher or not yet recorded
-                if (!exists $max_direct_versions{$name} || 
+                if (!exists $max_direct_versions{$name} ||
                     version_compare($rev, $max_direct_versions{$name}) > 0) {
                     $max_direct_versions{$name} = $rev;
                 }
@@ -1068,7 +1393,8 @@ sub generate_dynamic_exclusions_from_deps {
                                 $is_mismatched = 1;
                             }
                             # If $cmp >= 0, the highest direct version covers this transitive, no exclude needed
-                        } else {
+                        }
+                        else {
                             # No direct version found, exclude conservatively
                             $is_mismatched = 1;
                         }
@@ -1336,7 +1662,7 @@ sub detect_dependencies {
                 my $file = $File::Find::name;
 
                 if ($file =~ /\.(?:jsp|xml|properties)$/) {
-                    log_info("Scanning file: $file");
+                    log_info("Scanning file: $file") if $verbose;
 
                     open my $fh, '<', $file or do {
                         log_warning("Could not open file: $file: $!");
@@ -1665,6 +1991,145 @@ sub load_mgic_src_mappings {
     close $fh;
 
     return @detected_dirs;
+}
+
+sub extract_base_packages {
+    my ($src_dirs_ref) = @_;
+    my @base_packages;
+
+    my @src_dirs = ref($src_dirs_ref) eq 'ARRAY' ? @{$src_dirs_ref} : ($src_dirs_ref);
+    @src_dirs = grep {-d $_} @src_dirs;
+
+    log_info("Extracting base packages from \@ComponentScan and \@EnableJpaRepositories annotations...");
+
+    # Scan for Spring configuration classes with relevant annotations
+    find({
+        wanted   => sub {
+            return unless -f $_ && $_ =~ /\.java$/i;
+            open(my $fh, '<', $_) or return;
+            my $content = do {
+                local $/;
+                <$fh>
+            };
+            close($fh);
+
+            # Look for @ComponentScan, @EnableJpaRepositories, @EntityScan, @EnableElasticsearchRepositories, or @SpringBootApplication annotations
+            while ($content =~ /\@(?:ComponentScan|EnableJpaRepositories|EntityScan|EnableElasticsearchRepositories|SpringBootApplication)\s*(?:\([^)]*?\b(?:basePackages|scanBasePackages)\s*=\s*\{([^}]+)\})?/g) {
+                if (defined $1) {
+                    # Extract package names from basePackages array
+                    my $packages_str = $1;
+                    while ($packages_str =~ /"([a-zA-Z0-9_.]+)"/g) {
+                        push @base_packages, $1;
+                    }
+                }
+            }
+
+            # Check for single basePackage string without explicit array syntax
+            if ($content =~ /\@(?:ComponentScan|EnableJpaRepositories|EntityScan|EnableElasticsearchRepositories|SpringBootApplication)\s*\(\s*(?:basePackages|scanBasePackages)\s*=\s*"([^"]+)"\s*\)/) {
+                push @base_packages, $1;
+            }
+
+            # Also extract packages of classes referenced in @Import or @ContextConfiguration
+            while ($content =~ /\@(?:Import|ContextConfiguration)\s*\(\s*(?:classes\s*=\s*)?\{?([^}]+)\}?\s*\)/g) {
+                my $classes_str = $1;
+                while ($classes_str =~ /([a-zA-Z0-9_.]+)\.class/g) {
+                    my $full_ref = $1;
+                    if ($full_ref =~ /^(.*)\.[A-Z][a-zA-Z0-9_]*$/) {
+                        push @base_packages, $1;
+                    }
+                }
+            }
+        },
+        no_chdir => 1
+    }, @src_dirs);
+
+    # Remove duplicates and sort
+    my %seen;
+    @base_packages = grep {!$seen{$_}++} @base_packages;
+
+    if (@base_packages) {
+        log_info("Found base packages: " . join(', ', @base_packages));
+        return @base_packages;
+    }
+    else {
+        log_warning("No \@ComponentScan or \@EnableJpaRepositories annotations found. Using all source directories.");
+        return ();
+    }
+}
+
+sub package_matches_base_packages {
+    my ($package, $base_packages_ref) = @_;
+
+    return 1 if !@$base_packages_ref; # If no base packages specified, match all
+
+    for my $base_pkg (@$base_packages_ref) {
+        if ($package eq $base_pkg || $package =~ /^\Q$base_pkg\E\./) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+sub check_and_inject_smtp_dependencies {
+    my ($file_content_ref, $changes_made_ref, $src_dirs_ref, $update_ref) = @_;
+
+    my $has_smtp = 0;
+    my @search_dirs = grep {-d $_} @$src_dirs_ref;
+    push @search_dirs, 'war' if -d 'war';
+
+    # 1. Scan for log4j2 XML files containing an <SMTP> element (using basename)
+    find({
+        wanted   => sub {
+            my $filename = basename($_);
+            return unless -f $_ && $filename =~ /^log4j2(?:-.*)?\.xml$/i;
+
+            open(my $fh, '<', $_) or return;
+            while (my $line = <$fh>) {
+                if ($line =~ /<SMTP\b/i) {
+                    $has_smtp = 1;
+                    last;
+                }
+            }
+            close($fh);
+        },
+        no_chdir => 1
+    }, @search_dirs);
+
+    return unless $has_smtp;
+
+    log_info("Detected <SMTP> appender in log4j2 configuration.");
+
+    my @required_deps = ('angus-mail', 'log4j-jakarta-smtp');
+
+    # 2. ALWAYS set keep = 1 if <SMTP> exists (whether already in ivy.xml or newly injected)
+    for my $dep (@required_deps) {
+        $update_ref->{$dep} ||= {};
+        $update_ref->{$dep}->{keep} = 1;
+    }
+
+    # 3. Inject any missing dependencies directly into $file_content
+    for my $dep_name (@required_deps) {
+        if ($$file_content_ref !~ /<dependency\b[^>]*?\bname="\Q$dep_name\E"/s) {
+            my $entry = $update_ref->{$dep_name} || {};
+            my $org = $entry->{org} || ($dep_name eq 'angus-mail' ? 'org.eclipse.angus' : 'org.apache.logging.log4j');
+            my $rev = $entry->{rev} || ($dep_name eq 'angus-mail' ? '2.0.3' : '2.26.1');
+            my $conf = $entry->{conf} || 'runtime->default';
+
+            # Match indentation of existing dependency tags
+            my $indent = '        ';
+            if ($$file_content_ref =~ m{^(\s*)<dependency\s+}m) {
+                $indent = $1;
+            }
+
+            my $new_dep_xml = qq!${indent}<dependency org="$org" name="$dep_name" rev="$rev" conf="$conf" />\n!;
+
+            # Insert right before </dependencies>
+            if ($$file_content_ref =~ s{(^[ \t]*</dependencies>)}{${new_dep_xml}${1}}m) {
+                log_success("Added missing SMTP dependency: $dep_name ($rev)");
+                $$changes_made_ref++;
+            }
+        }
+    }
 }
 
 __END__
