@@ -43,9 +43,9 @@ jaxen: org=jaxen, name=jaxen, rev=2.0.6
 # Logging
 log4j-api: org=org.apache.logging.log4j, name=log4j-api, rev=2.26.1
 log4j-core: org=org.apache.logging.log4j, name=log4j-core, rev=2.26.1
-log4j-slf4j2-impl: org=org.apache.logging.log4j, name=log4j-slf4j2-impl, rev=2.26.1
+log4j-slf4j2-impl: org=org.apache.logging.log4j, name=log4j-slf4j2-impl, rev=2.26.1, keep=1
 log4j-jakarta-smtp: org=org.apache.logging.log4j, name=log4j-jakarta-smtp, rev=2.26.1
-jcl-over-slf4j: org=org.slf4j, name=jcl-over-slf4j, rev=2.0.18
+jcl-over-slf4j: org=org.slf4j, name=jcl-over-slf4j, rev=2.0.18, keep=1
 slf4j-api: org=org.slf4j, name=slf4j-api, rev=2.0.18
 
 # Unit Tests
@@ -62,11 +62,11 @@ jakarta.servlet.jsp-api: org=jakarta.servlet.jsp, name=jakarta.servlet.jsp-api, 
 jakarta.servlet.jsp.jstl: org=org.glassfish.web, name=jakarta.servlet.jsp.jstl, rev=3.0.1
 jakarta.servlet.jsp.jstl-api: org=jakarta.servlet.jsp.jstl, name=jakarta.servlet.jsp.jstl-api, rev=3.0.2
 lombok: org=org.projectlombok, name=lombok, rev=1.18.46
-jakarta.annotation-api: org=jakarta.annotation, name=jakarta.annotation-api, rev=3.0.0
+jakarta.annotation-api: org=jakarta.annotation, name=jakarta.annotation-api, rev=3.0.0, keep=1
 byte-buddy-agent: org=net.bytebuddy, name=byte-buddy-agent, rev=1.17.8, conf=compile->default
 
 # Hibernate - assume hibernate 6
-hibernate-core: org=org.hibernate.orm, name=hibernate-core, rev=6.6.54.Final
+hibernate-core: org=org.hibernate.orm, name=hibernate-core, rev=6.6.54.Final, keep=1
 hibernate-jpamodelgen: org=org.hibernate.orm, name=hibernate-jpamodelgen, rev=6.6.54.Final
 hibernate-community-dialects: org=org.hibernate.orm, name=hibernate-community-dialects, rev=6.6.54.Final
 hibernate-validator: org=org.hibernate.validator, name=hibernate-validator, rev=8.0.0.Final
@@ -90,7 +90,7 @@ tika-parser-sqlite3-package: org=org.apache.tika, name=tika-parser-sqlite3-packa
 # OTHER OTHER
 jackson-annotations: org=com.fasterxml.jackson.core, name=jackson-annotations, rev=2.22
 jackson-core: org=com.fasterxml.jackson.core, name=jackson-core, rev=2.22.1
-jackson-databind: org=com.fasterxml.jackson.core, name=jackson-databind, rev=2.22.1
+jackson-databind: org=com.fasterxml.jackson.core, name=jackson-databind, rev=2.22.1, snyk=SNYK-JAVA-COMFASTERXMLJACKSONCORE-17440598
 jackson-datatype-jsr310: org=com.fasterxml.jackson.datatype, name=jackson-datatype-jsr310, rev=2.22.1, keep=1
 jackson-datatype-json-org: org=com.fasterxml.jackson.datatype, name=jackson-datatype-json-org, rev=2.22.1
 itextpdf: org=com.itextpdf, name=itextpdf, rev=5.5.13.5
@@ -125,6 +125,7 @@ ignite-spring: org=org.apache.ignite, name=ignite-spring, rev=2.18.0
 ignite-indexing: org=org.apache.ignite, name=ignite-indexing, rev=2.18.0
 ignite-log4j2: org=org.apache.ignite, name=ignite-log4j2, rev=2.18.0
 ignite-slf4j: org=org.apache.ignite, name=ignite-slf4j, rev=2.18.0
+ignite-shmem: org=org.gridgain, name=ignite-shmem, rev=1.0.0, keep=1
 
 # Bouncy Castle - in Tomcat10 from MQ
 bcpkix-jdk15to18: org=org.bouncycastle, name=bcpkix-jdk15to18, rev=1.72
