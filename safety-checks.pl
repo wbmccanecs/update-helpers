@@ -151,7 +151,10 @@ log_info("DEBUG (Top-Level): File::Find will start from absolute path: '$abs_sta
 
 log_success("--- Starting All Safety Checks ---");
 safety_check($start_directory, 'java', $java_patterns) if $checks->{java} || $checkAll;
-safety_check($start_directory, 'jsp', $jsp_patterns) if $checks->{jsp} || $checkAll;
+if ($checks->{jsp} || $checkAll) {
+    safety_check($start_directory, 'jsp', $jsp_patterns);
+    check_unused_tagdefs($start_directory);
+}
 safety_check($start_directory, 'js', $js_patterns) if $checks->{js} || $checkAll;
 safety_check($start_directory, 'properties', $properties_patterns) if $checks->{properties} || $checkAll;
 safety_check($start_directory, 'xml', $xml_patterns) if $checks->{xml} || $checkAll;
@@ -434,6 +437,77 @@ sub check_for_file {
         my $x = `git ls-files --error-unmatch $file`;
         log_warning("$file is not in repository") if $?;
     }
+}
+
+sub check_unused_tagdefs {
+    my ($current_dir) = @_;
+
+    my $tagdefs_path;
+    my %declared_prefixes;
+    my %used_prefixes;
+
+    # 1. Locate tagdefs.jsp and parse declared taglibs
+    find(sub {
+        return unless -f $_ && $_ eq 'tagdefs.jsp';
+        $tagdefs_path = $File::Find::name;
+    }, $current_dir);
+
+    unless ($tagdefs_path && -f $tagdefs_path) {
+        return; # Silent skip if project doesn't utilize a tagdefs.jsp
+    }
+
+    open my $fh, "<", $tagdefs_path or return;
+    my $line_num = 0;
+    while (my $line = <$fh>) {
+        $line_num++;
+        if ($line =~ /<%@\s*taglib\s+[^>]*prefix=["']([^"']+)["']/) {
+            $declared_prefixes{$1} = $line_num;
+        }
+    }
+    close $fh;
+
+    return unless %declared_prefixes;
+
+    # 2. Scan all JSP/JSPF/TAG files to record prefix occurrences
+    find(sub {
+        if (-d $_) {
+            my $full_path = $File::Find::name;
+            if ($full_path =~ m#/(?:\.git|target|build|node_modules|bin|out|deploy|reports|test-automation|test-bin|war/META-INF|war/WEB-INF/classes|war/WEB-INF/lib|\.settings)$#) {
+                $File::Find::prune = 1;
+                return;
+            }
+        }
+
+        return unless -f $_ && $_ =~ /\.(jsp|jspf|tag)$/i;
+        return if $File::Find::name eq $tagdefs_path; # Ignore self
+
+        open my $jsp_fh, "<", $_ or return;
+        while (my $line = <$jsp_fh>) {
+            # Match element usages like <c:if, <fmt:formatDate, or xmlns:c=
+            while ($line =~ /<([a-zA-Z0-9_-]+):/g) {
+                $used_prefixes{$1} = 1;
+            }
+        }
+        close $jsp_fh;
+    }, $current_dir);
+
+    # 3. Output warnings for any unused declared taglibs
+    log_info("\nChecking tagdefs.jsp for Unused Taglib Declarations");
+    log_info("-" x 50);
+
+    my $unused_count = 0;
+    for my $prefix (sort keys %declared_prefixes) {
+        unless ($used_prefixes{$prefix}) {
+            my $decl_line = $declared_prefixes{$prefix};
+            log_warning("$tagdefs_path line $decl_line: unused taglib prefix '$prefix' in tagdefs.jsp - consider removing");
+            $unused_count++;
+        }
+    }
+
+    if ($unused_count == 0) {
+        log_info("  All declared taglib prefixes in tagdefs.jsp are actively used.");
+    }
+    log_info("-" x 50);
 }
 
 sub log_info {
