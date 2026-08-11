@@ -59,8 +59,8 @@ my $java_patterns = {
     'filter\.PageFilter'                                                                                                                                             => 'replace PageFilter with SiteMeshFilter',
     'com\.mgic\.business\.aims\.'                                                                                                                                    => 'use aimservice-client.jar',
     'org\.hibernate\.annotations\.Named'                                                                                                                             => 'use JPA NamedNativeQuery',
-    '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?([a-z][a-zA-Z0-9_]*\.[a-zA-Z0-9_\.]+)\s+\w+(?:\s*[=;,])'                           => 'FQCN member declaration: $1',
-    '^(?:[^/]|/(?!/))*?\bnew\s+([a-z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)\s*\('                                                                                        => 'FQCN construction: $1',
+    '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s+\w+(?:\s*[=;,])'                => 'FQCN member declaration: $1',
+    '^(?:[^/]|/(?!/))*?\bnew\s+((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s*\('                                                                                => 'FQCN construction: $1',
 };
 my $xml_patterns = {
     "org\\.jasig"                                     => "jasig CAS",
@@ -122,11 +122,12 @@ my @unwanted = (
 );
 
 my $checks;
-my ($help);
+my ($help, $verbose);
 
 GetOptions(
-    "dir|d=s" => \$start_directory,
-    "help|h"  => \$help,
+    "dir|d=s"   => \$start_directory,
+    "verbose|v" => \$verbose,
+    "help|h"    => \$help,
 ) or usage();
 
 if ($help) {
@@ -185,12 +186,14 @@ sub safety_check {
     }
 
     log_info("\nRunning Safety Check for *.$file_extension files");
-    log_info("  Target files with extension: $file_extension");
-    log_info("  Searching for patterns:");
-    foreach my $p_regex (sort keys %$patterns_ref) {
-        log_info("    - '$p_regex' (Identified as: " . $patterns_ref->{$p_regex} . ")");
+    if ($verbose) {
+        log_info("  Target files with extension: $file_extension");
+        log_info("  Searching for patterns:");
+        foreach my $p_regex (sort keys %$patterns_ref) {
+            log_info("    - '$p_regex' (Identified as: " . $patterns_ref->{$p_regex} . ")");
+        }
     }
-    log_info("  Starting directory: $current_dir");
+    log_info("  Starting directory: $current_dir") if $verbose && $current_dir ne ".";
     log_info("-" x 50);
 
     my $file_count = 0;
@@ -242,7 +245,6 @@ sub check_single_file {
         return 0 unless lc $suffix eq $lc_target_extension_with_dot;
     }
 
-    # remove unwanted files
     if ($remove_if_exists->{$filename}) {
         log_warning("remove " . $filename);
         return 0;
@@ -253,30 +255,59 @@ sub check_single_file {
         return 0;
     };
 
+    my @lines = <$fh>;
+    close $fh;
+
+    # 1. Collect explicit imports: e.g. 'Date' => 'java.util.Date'
+    my %imports;
+    for my $line (@lines) {
+        if ($line =~ /^\s*import\s+(?:static\s+)?((?:[a-z][a-zA-Z0-9_]*\.)+([A-Z][a-zA-Z0-9_]*))\s*;\s*$/) {
+            $imports{$2} = $1;
+        }
+    }
+
+    # 2. Validate line-by-line against compiled patterns
     my $line_num = 0;
-    my %pattern_found; # Track which patterns have been reported
+    my %pattern_found;
     my $patterns_count = scalar keys %$compiled_patterns;
     my $found_count = 0;
 
-    while (my $line = <$fh>) {
+    for my $line (@lines) {
         $line_num++;
         for my $pattern_regex_key (keys %$compiled_patterns) {
-            # Skip if this pattern has already been reported
             next if $pattern_found{$pattern_regex_key};
 
             if ($line =~ $compiled_patterns->{$pattern_regex_key}) {
+                my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+                my $output_string = $patterns_ref->{$pattern_regex_key};
+
+                # Braces s{}{} allow using '//' defined-or safely inside replacement block
+                $output_string =~ s{\$(\d+)}{$matches[$1 - 1] // ''}ge;
+
+                # 3. Detect conflicts between matched FQCN and imported class
+                my $extra_info = "";
+                if ($output_string =~ /FQCN/ && defined $matches[0] && $matches[0] =~ /^(.*)\.([A-Z][a-zA-Z0-9_]*)$/) {
+                    my ($fqcn, $simple_class) = ($matches[0], $2);
+                    if (exists $imports{$simple_class} && $imports{$simple_class} ne $fqcn) {
+                        next;
+                    }
+                }
+
                 $pattern_found{$pattern_regex_key} = 1;
                 $found_count++;
-                my $output_string = $patterns_ref->{$pattern_regex_key};
-                my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-                $output_string =~ s/\$(\d+)/$matches[$1 - 1]/ge;
-                log_warning("$file_path_display " . $output_string);
+                if ($lc_target_extension_with_dot eq ".java") {
+                    (my $fpd = $file_path_display) =~ s#^./(src|test)/##;
+                    $fpd =~ s#/#.#g;
+                    $fpd =~ s/$lc_target_extension_with_dot//;
+                    log_warning("$fpd.($filename:$line_num) - " . $output_string . $extra_info);
+                }
+                else {
+                    log_warning("$file_path_display line $line_num: " . $output_string . $extra_info);
+                }
             }
         }
-        # Stop early if all patterns have been found
         last if $found_count == $patterns_count;
     }
-    close $fh;
 
     return 1;
 }
