@@ -119,6 +119,14 @@ sub main {
         "httpcore"     => "httpclient5",
     };
 
+    my $dependency_conflicts = {
+        'log4j-slf4j2-impl' => [
+            { org => 'org.apache.logging.log4j', name => 'log4j-to-slf4j' },
+            { org => 'ch.qos.logback', name => "logback-classic" },
+            { org => 'ch.qos.logback', name => "logback-core" },
+        ],
+    };
+
     my $exclusions = {};
     my @packages;
 
@@ -312,6 +320,14 @@ sub main {
             $changes_made += 1;
         }
     }
+
+    enforce_dependency_conflicts(
+        $dependency_conflicts,
+        $remove_redundant_transitives_versioned,
+        \%surviving_deps,
+        \$file_content,
+        $exclusions,
+        \$changes_made);
 
     # Pass intact $file_content so is_already_excluded_in_xml accurately checks pre-existing rules
     generate_dynamic_exclusions_from_deps(
@@ -780,7 +796,7 @@ sub find_unused_dependencies {
 
         # Check snyk=SNYK flag in revision-updates.txt
         if ($update_ref && exists $update_ref->{$dep_name} && $update_ref->{$dep_name}->{snyk}) {
-            log_info("Keeping dependency '$dep_name' (resolvesg snyk=$update_ref->{$dep_name}->{snyk} in revision-updates.txt)");
+            log_info("Keeping dependency '$dep_name' (resolves snyk=$update_ref->{$dep_name}->{snyk} in revision-updates.txt)");
             $kept_deps{$dep_name} = 1;
             next;
         }
@@ -2127,6 +2143,82 @@ sub check_and_inject_smtp_dependencies {
             if ($$file_content_ref =~ s{(^[ \t]*</dependencies>)}{${new_dep_xml}${1}}m) {
                 log_success("Added missing SMTP dependency: $dep_name ($rev)");
                 $$changes_made_ref++;
+            }
+        }
+    }
+}
+
+sub enforce_dependency_conflicts {
+    my ($conflicts_ref, $transitive_map_ref, $surviving_deps_ref, $file_content_ref, $exclusions_ref, $changes_made_ref) = @_;
+
+    return unless defined $conflicts_ref && %$conflicts_ref;
+
+    for my $primary_mod (keys %$conflicts_ref) {
+
+        # 1. Check if the primary module exists directly or transitively
+        my $is_primary_present = exists $surviving_deps_ref->{$primary_mod};
+        unless ($is_primary_present) {
+            for my $parent (keys %$transitive_map_ref) {
+                if (exists $transitive_map_ref->{$parent}{$primary_mod}) {
+                    $is_primary_present = 1;
+                    last;
+                }
+            }
+        }
+
+        next unless $is_primary_present;
+
+        # 2. Process conflict rules for this primary module
+        for my $rule (@{$conflicts_ref->{$primary_mod}}) {
+            my $target_org = $rule->{org};
+            my $target_module = $rule->{name};
+
+            # --- OPTION 1: Remove Direct Dependency from XML ---
+            if (exists $surviving_deps_ref->{$target_module} || $$file_content_ref =~ /<dependency\b[^>]*?\bname="\Q$target_module\E"/s) {
+                if ($$file_content_ref =~ s{
+                    ^ \s*
+                    <dependency\b
+                    (?:[^>"']|"[^"]*"|'[^']*')*?
+                    \bname="\Q$target_module\E"
+                    (?:[^>"']|"[^"]*"|'[^']*')*?
+                    (?:
+                        />
+                        |
+                        >\s*.*?\s*</dependency>
+                    )
+                    \r?\n?
+                }{}gmsx) {
+                    delete $surviving_deps_ref->{$target_module};
+                    log_warning("Conflict resolved: Removed direct dependency '$target_module' because '$primary_mod' is present.");
+                    $$changes_made_ref++;
+                }
+            }
+
+            # --- OPTION 3: Queue Inline Exclude Rules for Parent Dependencies ---
+            for my $parent_dep (keys %$transitive_map_ref) {
+                if (exists $transitive_map_ref->{$parent_dep}{$target_module}) {
+                    next unless exists $surviving_deps_ref->{$parent_dep};
+
+                    $exclusions_ref->{$parent_dep} ||= [];
+
+                    # Check for duplicates before adding
+                    my $already_exists = 0;
+                    for my $ex (@{$exclusions_ref->{$parent_dep}}) {
+                        if (($ex->{org} // '') eq $target_org && ($ex->{module} // '') eq $target_module) {
+                            $already_exists = 1;
+                            last;
+                        }
+                    }
+
+                    unless ($already_exists) {
+                        push @{$exclusions_ref->{$parent_dep}}, {
+                            org  => $target_org,
+                            name => $target_module
+                        };
+                        log_warning("Conflict safety: Queued inline <exclude org=\"$target_org\" name=\"$target_module\"/> under parent '$parent_dep'");
+                        $$changes_made_ref++;
+                    }
+                }
             }
         }
     }
