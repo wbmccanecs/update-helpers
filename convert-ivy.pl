@@ -296,6 +296,14 @@ sub main {
         $surviving_deps{$1} = 1;
     }
 
+    promote_snyk_transitives(
+        $remove_redundant_transitives_versioned,
+        \%surviving_deps,
+        $update,
+        \$file_content,
+        \$changes_made
+    );
+
     # Remove redundant direct dependencies fully satisfied by surviving parents
     for my $dep_name (keys %surviving_deps) {
         my $current_rev;
@@ -328,6 +336,8 @@ sub main {
         \$file_content,
         $exclusions,
         \$changes_made);
+
+    enforce_snyk_comments(\$file_content, $update, \$changes_made);
 
     # Pass intact $file_content so is_already_excluded_in_xml accurately checks pre-existing rules
     generate_dynamic_exclusions_from_deps(
@@ -2221,6 +2231,149 @@ sub enforce_dependency_conflicts {
                 }
             }
         }
+    }
+}
+
+sub promote_snyk_transitives {
+    my ($transitive_map_ref, $surviving_deps_ref, $update_ref, $file_content_ref, $changes_made_ref) = @_;
+
+    return unless defined $transitive_map_ref && %$transitive_map_ref;
+    return unless defined $update_ref && %$update_ref;
+
+    # 1. Map each transitive child dependency to its surviving parent(s)
+    my %transitive_parents;
+    for my $parent (keys %$transitive_map_ref) {
+        next unless exists $surviving_deps_ref->{$parent}; # Must be a surviving parent in ivy.xml
+        for my $child (keys %{$transitive_map_ref->{$parent}}) {
+            push @{$transitive_parents{$child}}, $parent;
+        }
+    }
+
+    my @insertions_to_apply;
+
+    # 2. Identify transitive dependencies flagged with snyk in revision-updates.txt
+    for my $dep_name (keys %transitive_parents) {
+        next if exists $surviving_deps_ref->{$dep_name}; # Skip if already a direct dependency
+
+        my $entry = $update_ref->{$dep_name};
+        if (defined $entry && exists $entry->{snyk} && defined $entry->{snyk}) {
+            my $org = $entry->{org} // 'unknown.org';
+            my $name = $entry->{name} // $dep_name;
+            my $rev = $entry->{rev};
+            my $conf = $entry->{conf} // 'runtime->default';
+            my $snyk = $entry->{snyk};
+
+            unless (defined $rev) {
+                log_warning("Cannot promote Snyk transitive '$dep_name': missing 'rev' in revision-updates.txt");
+                next;
+            }
+
+            # 3. Find the parent dependency block inside $file_content
+            my $matched_parent;
+            my $match_end_offset;
+            my $parent_indent = '        ';
+
+            for my $parent (@{$transitive_parents{$dep_name}}) {
+                my $parent_regex = qr{
+                    (
+                        ^ [ \t]*
+                        <dependency\b
+                        (?:[^>"']|"[^"]*"|'[^']*')*?
+                        \bname="\Q$parent\E"
+                        (?:[^>"']|"[^"]*"|'[^']*')*?
+                        (?:
+                            />
+                            |
+                            >\s*.*?\s*</dependency>
+                        )
+                        \r?\n?
+                    )
+                }msx;
+
+                if ($$file_content_ref =~ m/(.*?)($parent_regex)/s) {
+                    $match_end_offset = length($1) + length($2);
+                    $matched_parent = $parent;
+
+                    # Match indentation of parent tag
+                    if ($2 =~ /^(\s*)<dependency/m) {
+                        $parent_indent = $1;
+                    }
+                    last;
+                }
+            }
+
+            if (defined $matched_parent && defined $match_end_offset) {
+                my $new_dep_xml = "${parent_indent}<!-- $snyk -->\n" . qq!${parent_indent}<dependency org="$org" name="$name" rev="$rev" conf="$conf" />\n!;
+
+                push @insertions_to_apply, {
+                    pos    => $match_end_offset,
+                    text   => $new_dep_xml,
+                    name   => $name,
+                    rev    => $rev,
+                    snyk   => $snyk,
+                    parent => $matched_parent,
+                };
+            }
+            else {
+                log_warning("Could not locate parent dependency block in XML to insert promoted Snyk dependency '$name'");
+            }
+        }
+    }
+
+    # 4. Apply insertions in reverse positional order to preserve string offsets
+    @insertions_to_apply = sort {$b->{pos} <=> $a->{pos}} @insertions_to_apply;
+
+    for my $ins (@insertions_to_apply) {
+        substr($$file_content_ref, $ins->{pos}, 0) = $ins->{text};
+        $surviving_deps_ref->{$ins->{name}} = 1; # Mark as direct dependency
+        log_success("Promoted transitive Snyk dependency to direct: $ins->{name} ($ins->{rev}) [snyk=$ins->{snyk}] (inserted after parent '$ins->{parent}')");
+        $$changes_made_ref++;
+    }
+}
+
+sub enforce_snyk_comments {
+    my ($file_content_ref, $update_ref, $changes_made_ref) = @_;
+
+    return unless defined $update_ref && %$update_ref;
+
+    for my $dep_name (keys %$update_ref) {
+        my $entry = $update_ref->{$dep_name};
+        next unless defined $entry && exists $entry->{snyk} && defined $entry->{snyk} && $entry->{snyk} ne '';
+
+        my $snyk_id = $entry->{snyk};
+
+        # Match optional pre-existing SNYK comment directly preceding the dependency block
+        $$file_content_ref =~ s{
+            ^ ([ \t]*)
+            (?: <!-- \s* (SNYK-[^>]+?) \s* --> \s* \r?\n [ \t]* )?
+            (
+                <dependency \b
+                (?: [^>"'] | "[^"]*" | '[^']*' )*?
+                \bname="\Q$dep_name\E"
+                (?: [^>"'] | "[^"]*" | '[^']*' )*?
+                (?: /> | > \s* .*? \s* </dependency> )
+            )
+        }{
+            my $indent = $1 // '        ';
+            my $existing_snyk = $2;
+            my $dep_block = $3;
+
+            if (defined $existing_snyk) {
+                if ($existing_snyk ne $snyk_id) {
+                    log_info("Updated Snyk comment for '$dep_name': $existing_snyk -> $snyk_id");
+                    $$changes_made_ref++;
+                    "${indent}<!-- $snyk_id -->\n${indent}${dep_block}";
+                }
+                else {
+                    "${indent}<!-- $snyk_id -->\n${indent}${dep_block}";
+                }
+            }
+            else {
+                log_info("Added Snyk comment for '$dep_name': $snyk_id");
+                $$changes_made_ref++;
+                "${indent}<!-- $snyk_id -->\n${indent}${dep_block}";
+            }
+        }gmsxe;
     }
 }
 

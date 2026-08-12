@@ -23,7 +23,7 @@ spring-security-config: org=org.springframework.security, name=spring-security-c
 spring-security-oauth2-resource-server: org=org.springframework.security, name=spring-security-oauth2-resource-server, rev=6.5.4
 spring-security-test: org=org.springframework.security, name=spring-security-test, rev=6.5.4
 spring-security-oauth2-jose: org=org.springframework.security, name=spring-security-oauth2-jose, rev=6.5.4
-spring-boot-autoconfigure: org=org.springframework.boot, name=spring-boot-autoconfigure, rev=3.5.14
+spring-boot-autoconfigure: org=org.springframework.boot, name=spring-boot-autoconfigure, rev=3.5.15, snyk=SNYK-JAVA-ORGSPRINGFRAMEWORKBOOT-16198880
 
 # Miscellaneous
 jcc: org=com.ibm.db2, name=jcc, rev=11.5.9.0
