@@ -113,18 +113,16 @@ sub main {
     my $add_if_missing = {};
     my %globally_add_deps = ();
 
-    my $keep_if_exists = {
-        "commons-lang" => "commons-lang3",
-        "httpclient"   => "httpclient5",
-        "httpcore"     => "httpclient5",
-    };
-
     my $dependency_conflicts = {
         'log4j-slf4j2-impl' => [
             { org => 'org.apache.logging.log4j', name => 'log4j-to-slf4j' },
             { org => 'ch.qos.logback', name => "logback-classic" },
             { org => 'ch.qos.logback', name => "logback-core" },
         ],
+    };
+
+    my $api_provider_map = {
+        'angus-mail' => [ 'jakarta.mail' ],
     };
 
     my $exclusions = {};
@@ -180,10 +178,6 @@ sub main {
         my $replacement_str = "";
 
         unless (defined $dep_org and defined $dep_name) {
-            $replacement_str = $leading_whitespace . $dependency_block;
-        }
-        elsif (exists $keep_if_exists->{$dep_name} && grep {$keep_if_exists->{$dep_name} eq $_} @packages) {
-            log_warning("Keep $dep_name");
             $replacement_str = $leading_whitespace . $dependency_block;
         }
         elsif (grep {$dep_name =~ $_} @remove_packages && !($update->{$dep_name} && ($update->{$dep_name}->{keep} || $update->{$dep_name}->{snyk}))) {
@@ -285,7 +279,7 @@ sub main {
     my $remove_redundant_transitives_versioned = generate_transitive_map_from_deps($deps_file);
 
     # Now detect unused dependencies (after transitive map is available)
-    my $unused_by_scope_ref = find_unused_dependencies($file_content, \%used_deps_to_keep, $update, \@remove_packages, $keep_if_exists, \@packages, $remove_redundant_transitives_versioned, $libdir);
+    my $unused_by_scope_ref = find_unused_dependencies($file_content, \%used_deps_to_keep, $update, \@remove_packages, \@packages, $remove_redundant_transitives_versioned, $libdir, $api_provider_map);
     for my $unused_dep (keys %$unused_by_scope_ref) {
         $unused_deps_to_drop{$unused_dep} = 1;
     }
@@ -706,10 +700,18 @@ sub find_jars_for_dependency {
 }
 
 sub is_dep_used {
-    my ($dep_name, $update_ref, $used_deps_ref, $libdir) = @_;
+    my ($dep_name, $update_ref, $used_deps_ref, $libdir, $api_provider_map) = @_;
     return 0 unless defined $dep_name && defined $used_deps_ref && %$used_deps_ref;
 
     return 1 if exists $used_deps_ref->{$dep_name};
+
+    if (exists $api_provider_map->{$dep_name}) {
+        for my $api_pkg (@{$api_provider_map->{$dep_name}}) {
+            for my $ref_pkg (keys %$used_deps_ref) {
+                return 1 if $ref_pkg =~ /^\Q$api_pkg\E\b/i;
+            }
+        }
+    }
 
     $libdir ||= (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
 
@@ -777,7 +779,7 @@ sub is_dep_used {
 }
 
 sub find_unused_dependencies {
-    my ($file_content, $used_deps_ref, $update_ref, $remove_packages_ref, $keep_if_exists_ref, $packages_ref, $transitive_map_ref, $libdir) = @_;
+    my ($file_content, $used_deps_ref, $update_ref, $remove_packages_ref, $packages_ref, $transitive_map_ref, $libdir, $api_provider_map) = @_;
     my %unused_deps;
 
     log_info("Analyzing declared dependencies against actual usage...");
@@ -811,21 +813,13 @@ sub find_unused_dependencies {
             next;
         }
 
-        # Check keep_if_exists rule
-        if ($keep_if_exists_ref && exists $keep_if_exists_ref->{$dep_name}) {
-            if (grep {$keep_if_exists_ref->{$dep_name} eq $_} @$packages_ref) {
-                $kept_deps{$dep_name} = 1;
-                next;
-            }
-        }
-
         # Skip explicit removal list
         if ($remove_packages_ref && grep {$dep_name =~ $_} @$remove_packages_ref) {
             next;
         }
 
         # Check if dependency or its JAR classes are directly referenced in source code
-        if (is_dep_used($dep_name, $update_ref, $used_deps_ref, $libdir)) {
+        if (is_dep_used($dep_name, $update_ref, $used_deps_ref, $libdir, $api_provider_map)) {
             $kept_deps{$dep_name} = 1;
         }
     }
@@ -2240,12 +2234,22 @@ sub promote_snyk_transitives {
     return unless defined $transitive_map_ref && %$transitive_map_ref;
     return unless defined $update_ref && %$update_ref;
 
-    # 1. Map each transitive child dependency to its surviving parent(s)
+    # 1. Map each transitive child to its surviving parent(s) and track max transitive version
     my %transitive_parents;
+    my %max_transitive_revs;
+
     for my $parent (keys %$transitive_map_ref) {
         next unless exists $surviving_deps_ref->{$parent}; # Must be a surviving parent in ivy.xml
         for my $child (keys %{$transitive_map_ref->{$parent}}) {
             push @{$transitive_parents{$child}}, $parent;
+
+            my $child_trans_rev = $transitive_map_ref->{$parent}{$child};
+            if (defined $child_trans_rev) {
+                if (!exists $max_transitive_revs{$child} ||
+                    version_compare($child_trans_rev, $max_transitive_revs{$child}) > 0) {
+                    $max_transitive_revs{$child} = $child_trans_rev;
+                }
+            }
         }
     }
 
@@ -2261,14 +2265,25 @@ sub promote_snyk_transitives {
             my $name = $entry->{name} // $dep_name;
             my $rev = $entry->{rev};
             my $conf = $entry->{conf} // 'runtime->default';
-            my $snyk = $entry->{snyk};
+            my $snyk_id = $entry->{snyk};
 
             unless (defined $rev) {
                 log_warning("Cannot promote Snyk transitive '$dep_name': missing 'rev' in revision-updates.txt");
                 next;
             }
 
-            # 3. Find the parent dependency block inside $file_content
+            my $transitive_rev = $max_transitive_revs{$dep_name};
+
+            # ONLY promote if requested rev in revision-updates.txt is strictly NEWER than current transitive version
+            if (defined $transitive_rev) {
+                my $cmp = version_compare($rev, $transitive_rev);
+                if ($cmp <= 0) {
+                    log_info("Skipping promotion for Snyk transitive '$name': requested $rev <= transitive $transitive_rev");
+                    next;
+                }
+            }
+
+            # 3. Locate the parent dependency block inside $file_content
             my $matched_parent;
             my $match_end_offset;
             my $parent_indent = '        ';
@@ -2294,7 +2309,6 @@ sub promote_snyk_transitives {
                     $match_end_offset = length($1) + length($2);
                     $matched_parent = $parent;
 
-                    # Match indentation of parent tag
                     if ($2 =~ /^(\s*)<dependency/m) {
                         $parent_indent = $1;
                     }
@@ -2303,19 +2317,18 @@ sub promote_snyk_transitives {
             }
 
             if (defined $matched_parent && defined $match_end_offset) {
-                my $new_dep_xml = "${parent_indent}<!-- $snyk -->\n" . qq!${parent_indent}<dependency org="$org" name="$name" rev="$rev" conf="$conf" />\n!;
+                # Format newly promoted dependency with preceding Snyk comment
+                my $new_dep_xml = "${parent_indent}<!-- $snyk_id -->\n" . qq!${parent_indent}<dependency org="$org" name="$name" rev="$rev" conf="$conf" />\n!;
 
                 push @insertions_to_apply, {
-                    pos    => $match_end_offset,
-                    text   => $new_dep_xml,
-                    name   => $name,
-                    rev    => $rev,
-                    snyk   => $snyk,
-                    parent => $matched_parent,
+                    pos            => $match_end_offset,
+                    text           => $new_dep_xml,
+                    name           => $name,
+                    rev            => $rev,
+                    transitive_rev => $transitive_rev // 'unknown',
+                    snyk           => $snyk_id,
+                    parent         => $matched_parent,
                 };
-            }
-            else {
-                log_warning("Could not locate parent dependency block in XML to insert promoted Snyk dependency '$name'");
             }
         }
     }
@@ -2326,7 +2339,7 @@ sub promote_snyk_transitives {
     for my $ins (@insertions_to_apply) {
         substr($$file_content_ref, $ins->{pos}, 0) = $ins->{text};
         $surviving_deps_ref->{$ins->{name}} = 1; # Mark as direct dependency
-        log_success("Promoted transitive Snyk dependency to direct: $ins->{name} ($ins->{rev}) [snyk=$ins->{snyk}] (inserted after parent '$ins->{parent}')");
+        log_success("Promoted transitive Snyk dependency to direct: $ins->{name} ($ins->{rev} > $ins->{transitive_rev}) [snyk=$ins->{snyk}] (inserted after parent '$ins->{parent}')");
         $$changes_made_ref++;
     }
 }
@@ -2341,8 +2354,8 @@ sub enforce_snyk_comments {
         next unless defined $entry && exists $entry->{snyk} && defined $entry->{snyk} && $entry->{snyk} ne '';
 
         my $snyk_id = $entry->{snyk};
+        my $snyk_rev = $entry->{rev}; # Target version associated with Snyk fix in revision-updates.txt
 
-        # Match optional pre-existing SNYK comment directly preceding the dependency block
         $$file_content_ref =~ s{
             ^ ([ \t]*)
             (?: <!-- \s* (SNYK-[^>]+?) \s* --> \s* \r?\n [ \t]* )?
@@ -2358,23 +2371,48 @@ sub enforce_snyk_comments {
             my $existing_snyk = $2;
             my $dep_block = $3;
 
-            if (defined $existing_snyk) {
-                if ($existing_snyk ne $snyk_id) {
-                    log_info("Updated Snyk comment for '$dep_name': $existing_snyk -> $snyk_id");
+            # Extract current revision directly from the dependency block in XML
+            my $current_rev;
+            if ($dep_block =~ /\brev="([^"]*)"/) {
+                $current_rev = $1;
+            }
+
+            # Check if active XML revision is strictly NEWER than the target Snyk fix version
+            my $is_newer = 0;
+            if (defined $current_rev && defined $snyk_rev) {
+                if (version_compare($current_rev, $snyk_rev) > 0) {
+                    $is_newer = 1;
+                }
+            }
+
+            if ($is_newer) {
+                # Omit Snyk comment if direct dependency is newer; strip pre-existing comment if present
+                if (defined $existing_snyk) {
+                    log_info("Removed Snyk comment for '$dep_name' ($current_rev > $snyk_rev)");
+                    $$changes_made_ref++;
+                }
+                "${indent}${dep_block}";
+            }
+            else {
+                if (defined $existing_snyk) {
+                    if ($existing_snyk ne $snyk_id) {
+                        log_info("Updated Snyk comment for '$dep_name': $existing_snyk -> $snyk_id");
+                        $$changes_made_ref++;
+                        "${indent}<!-- $snyk_id -->\n${indent}${dep_block}";
+                    }
+                    else {
+                        "${indent}<!-- $snyk_id -->\n${indent}${dep_block}";
+                    }
+                }
+                else {
+                    log_info("Added Snyk comment for '$dep_name': $snyk_id");
                     $$changes_made_ref++;
                     "${indent}<!-- $snyk_id -->\n${indent}${dep_block}";
                 }
-                else {
-                    "${indent}<!-- $snyk_id -->\n${indent}${dep_block}";
-                }
-            }
-            else {
-                log_info("Added Snyk comment for '$dep_name': $snyk_id");
-                $$changes_made_ref++;
-                "${indent}<!-- $snyk_id -->\n${indent}${dep_block}";
             }
         }gmsxe;
     }
 }
 
 __END__
+
