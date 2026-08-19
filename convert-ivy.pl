@@ -70,6 +70,8 @@ sub main {
         "httpcore",
         'taglibs-standard-impl',
         "javax.activation",
+        "javassit",
+        "hamcrest-core",
     );
 
     if ($no_ui) {

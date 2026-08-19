@@ -3,7 +3,7 @@
 # Spring
 spring-core: org=org.springframework, name=spring-core, rev=6.2.19
 spring-beans: org=org.springframework, name=spring-beans, rev=6.2.19
-spring-context: org=org.springframework, name=spring-context, rev=6.2.19, keep=1
+spring-context: org=org.springframework, name=spring-context, rev=6.2.19, snyk=SNYK-JAVA-ORGSPRINGFRAMEWORK-18326609
 spring-context-support: org=org.springframework, name=spring-context-support, rev=6.2.19
 spring-expression: org=org.springframework, name=spring-expression, rev=6.2.19
 spring-jms: org=org.springframework, name=spring-jms, rev=6.2.19
@@ -31,7 +31,7 @@ ojdbc8: org=com.oracle.database.jdbc, name=ojdbc8, rev=23.26.2.0.0
 displaytag: org=com.github.hazendaz, name=displaytag, rev=3.8.0
 fop: org=org.apache.xmlgraphics, name=fop, rev=2.10
 commons-collections4: org=org.apache.commons, name=commons-collections4, rev=4.5.0
-commons-lang3: org=org.apache.commons, name=commons-lang3, rev=3.20.0
+commons-lang3: org=org.apache.commons, name=commons-lang3, rev=3.20.0, snyk=SNYK-JAVA-ORGAPACHECOMMONS-10734078
 commons-text: org=org.apache.commons, name=commons-text, rev=1.15.0
 commons-beanutils: org=commons-beanutils, name=commons-beanutils, rev=1.11.0
 commons-dbcp2: org=org.apache.commons, name=commons-dbcp2, rev=2.14.0
@@ -42,14 +42,14 @@ jaxen: org=jaxen, name=jaxen, rev=2.0.6
 
 # Logging
 log4j-api: org=org.apache.logging.log4j, name=log4j-api, rev=2.26.1
-log4j-core: org=org.apache.logging.log4j, name=log4j-core, rev=2.26.1
+log4j-core: org=org.apache.logging.log4j, name=log4j-core, rev=2.26.1, snyk=SNYK-JAVA-ORGAPACHELOGGINGLOG4J-15967804
 log4j-slf4j2-impl: org=org.apache.logging.log4j, name=log4j-slf4j2-impl, rev=2.26.1, keep=1
 log4j-jakarta-smtp: org=org.apache.logging.log4j, name=log4j-jakarta-smtp, rev=2.26.1
 jcl-over-slf4j: org=org.slf4j, name=jcl-over-slf4j, rev=2.0.18, keep=1
-slf4j-api: org=org.slf4j, name=slf4j-api, rev=2.0.18
+slf4j-api: org=org.slf4j, name=slf4j-api, rev=2.0.18, conf=compile->default
 
 # Unit Tests
-junit: org=junit, name=junit, rev=4.13.2, conf=compile->default
+junit: org=junit, name=junit, rev=4.13.2, conf=compile->default, keep=1
 mockito-core: org=org.mockito, name=mockito-core, rev=5.23.0, conf=compile->default
 
 # Web Runtime
@@ -60,14 +60,14 @@ sitemesh: org=opensymphony, name=sitemesh, rev=2.7.0-M1
 jakarta.servlet-api: org=jakarta.servlet, name=jakarta.servlet-api, rev=6.0.0, conf=compile->default
 jakarta.servlet.jsp-api: org=jakarta.servlet.jsp, name=jakarta.servlet.jsp-api, rev=4.0.0, conf=compile->default
 jakarta.servlet.jsp.jstl: org=org.glassfish.web, name=jakarta.servlet.jsp.jstl, rev=3.0.1
-jakarta.servlet.jsp.jstl-api: org=jakarta.servlet.jsp.jstl, name=jakarta.servlet.jsp.jstl-api, rev=3.0.2
-lombok: org=org.projectlombok, name=lombok, rev=1.18.46
-jakarta.annotation-api: org=jakarta.annotation, name=jakarta.annotation-api, rev=3.0.0, keep=1
+jakarta.servlet.jsp.jstl-api: org=jakarta.servlet.jsp.jstl, name=jakarta.servlet.jsp.jstl-api, rev=3.0.2, conf=compile->default
+lombok: org=org.projectlombok, name=lombok, rev=1.18.46, keep=1
+jakarta.annotation-api: org=jakarta.annotation, name=jakarta.annotation-api, rev=3.0.0, keep=1, conf=compile->default
 byte-buddy-agent: org=net.bytebuddy, name=byte-buddy-agent, rev=1.17.8, conf=compile->default
 
 # Hibernate - assume hibernate 6
 hibernate-core: org=org.hibernate.orm, name=hibernate-core, rev=6.6.54.Final, keep=1
-hibernate-jpamodelgen: org=org.hibernate.orm, name=hibernate-jpamodelgen, rev=6.6.54.Final
+hibernate-jpamodelgen: org=org.hibernate.orm, name=hibernate-jpamodelgen, rev=6.6.54.Final, conf=compile->default
 hibernate-community-dialects: org=org.hibernate.orm, name=hibernate-community-dialects, rev=6.6.54.Final
 hibernate-validator: org=org.hibernate.validator, name=hibernate-validator, rev=8.0.0.Final
 hibernate-validator-annotation-processor: org=org.hibernate.validator, name=hibernate-validator-annotation-processor, rev=8.0.0.Final
@@ -83,6 +83,7 @@ nimbus-jose-jwt: org=com.nimbusds, name=nimbus-jose-jwt, rev=10.9.1
 # Other
 poi: org=org.apache.poi, name=poi, rev=5.4.1
 poi-ooxml: org=org.apache.poi, name=poi-ooxml, rev=5.4.1
+poi-ooxml-schemas: org=org.apache.poi, name=poi-ooxml-schemas, rev=4.1.2, keep=1
 tika-core: org=org.apache.tika, name=tika-core, rev=3.3.1
 tika-parsers-standard-package: org=org.apache.tika, name=tika-parsers-standard-package, rev=3.3.1
 tika-parser-sqlite3-package: org=org.apache.tika, name=tika-parser-sqlite3-package, rev=3.3.1
@@ -133,12 +134,13 @@ bcprov-jdk15to18: org=org.bouncycastle, name=bcprov-jdk15to18, rev=1.72
 bcutil-jdk15to18: org=org.bouncycastle, name=bcutil-jdk15to18, rev=1.72
 
 # Replaced Packages
-commons-lang=>commons-lang3
+commons-lang=>commons-lang3, keep_both=1
 commons-dbcp=>commons-dbcp2
 commons-collections=>commons-collections4
 commons-fileupload=>commons-fileupload2-jakarta-servlet6
 encoder-jsp=>encoder-jakarta-jsp
-httpclient=>httpclient5
+httpclient=>httpclient5, keep_both=1
+httpcore=>httpclient5, keep_both=1
 httpclient-cache=>httpclient5-cache
 javax.annotation-api=>jakarta.annotation-api
 javax.servlet-api=>jakarta.servlet-api
