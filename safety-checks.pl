@@ -154,18 +154,24 @@ safety_check($start_directory, 'java', $java_patterns) if $checks->{java} || $ch
 if ($checks->{jsp} || $checkAll) {
     safety_check($start_directory, 'jsp', $jsp_patterns);
     check_unused_tagdefs($start_directory);
+    check_xml_well_formedness($start_directory, [ 'jsp', 'jspf', 'htm', 'html', 'tld', 'tag' ]);
 }
 safety_check($start_directory, 'js', $js_patterns) if $checks->{js} || $checkAll;
 safety_check($start_directory, 'properties', $properties_patterns) if $checks->{properties} || $checkAll;
-safety_check($start_directory, 'xml', $xml_patterns) if $checks->{xml} || $checkAll;
+if ($checks->{xml} || $checkAll) {
+    safety_check($start_directory, 'xml', $xml_patterns);
+    check_xml_well_formedness($start_directory, 'xml');
+}
 safety_check($start_directory, 'iml', $iml_patterns) if $checks->{iml} || $checkAll;
 safety_check($start_directory, 'yml', $yaml_patterns) if $checks->{yml} || $checkAll;
 safety_check($start_directory, 'sh', $sh_patterns) if $checks->{sh} || $checkAll;
 file_pattern_safety_checks($start_directory, $file_patterns) if $checks->{files} || $checks->{file_patterns} || $checkAll;
 misc_checks($start_directory) if $checks->{misc} || $checkAll;
-for my $m (@unwanted) {
-    if (-e $m) {
-        log_error("remove " . $m);
+if ($checkAll) {
+    for my $m (@unwanted) {
+        if (-e $m) {
+            log_error("remove " . $m);
+        }
     }
 }
 
@@ -298,7 +304,7 @@ sub check_single_file {
 
                 $pattern_found{$pattern_regex_key} = 1;
                 $found_count++;
-                if ($lc_target_extension_with_dot eq ".java") {
+                if (defined $lc_target_extension_with_dot && $lc_target_extension_with_dot eq ".java") {
                     (my $fpd = $file_path_display) =~ s#^./(src|test)/##;
                     $fpd =~ s#/#.#g;
                     $fpd =~ s/$lc_target_extension_with_dot//;
@@ -529,6 +535,165 @@ sub log_error {
 sub log_success {
     my ($message) = @_;
     print BOLD GREEN "$message" . RESET . "\n";
+}
+
+sub validate_attributes {
+    my ($tag_name, $attrs) = @_;
+    return undef unless defined $attrs && $attrs =~ /\S/;
+
+    # Validate attribute quote closure
+    while ($attrs =~ m{([a-zA-Z0-9_\-\.\:]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))}g) {
+        my ($attr_name, $val_dbl, $val_sgl, $unquoted) = ($1, $2, $3, $4);
+        if (defined $unquoted) {
+            return "Unquoted attribute value in tag <$tag_name>: $attr_name=$unquoted";
+        }
+    }
+    return undef;
+}
+
+sub validate_xml_content_pure_perl {
+    my ($content) = @_;
+
+    # 1. Pre-process: Strip JSP comments, scriptlets, directives, and EL expressions
+    $content =~ s/<%--.*?--%>//gs;   # JSP comments
+    $content =~ s/<%[@=!]?.*?%>//gs; # JSP directives and scriptlets
+    $content =~ s/\$\{[^}]*\}//gs;   # JSP EL expressions (${...})
+
+    # 2. Strip XML comments, CDATA, Processing Instructions, and DOCTYPEs
+    $content =~ s/<!--.*?-->//gs;
+    $content =~ s/<!\[CDATA\[.*?\]\]>//gs;
+    $content =~ s/<\?.*?\?>//gs;
+    $content =~ s/<!DOCTYPE.*?>//gs;
+
+    my @tag_stack;
+    my $root_element_count = 0;
+
+    # Tag regex: Matches < ... > while allowing < and > inside single or double quotes
+    my $tag_regex = qr{
+        <
+        (?:
+            [^"'>]
+            |
+            "[^"]*"
+            |
+            '[^']*'
+        )*
+        >
+    }xms;
+
+    # 3. Tokenize by tags (respecting quoted < and >), stray '<', or text content
+    while ($content =~ m{($tag_regex|[^<]+|<)}gs) {
+        my $chunk = $1;
+
+        if ($chunk eq '<') {
+            return "Malformed XML: Unclosed or orphaned '<' found";
+        }
+        elsif ($chunk =~ /^</) {
+            # Self-closing tag: <foo ... />
+            if ($chunk =~ /^<\s*([a-zA-Z0-9_\-\.\:]+)(?:\s+[\s\S]*)?\/>$/s) {
+                my $tag_name = $1;
+                my $attrs = $chunk;
+                $attrs =~ s/^<\s*\Q$tag_name\E//;
+                $attrs =~ s/\/>$//;
+
+                if (my $err = validate_attributes($tag_name, $attrs)) {
+                    return $err;
+                }
+                next;
+            }
+
+            # Closing tag: </foo>
+            if ($chunk =~ /^<\/\s*([a-zA-Z0-9_\-\.\:]+)\s*>$/s) {
+                my $close_tag = $1;
+                unless (@tag_stack) {
+                    return "Unexpected closing tag </$close_tag> with empty tag stack";
+                }
+                my $open_tag = pop @tag_stack;
+                if ($open_tag ne $close_tag) {
+                    return "Mismatched tag: expected </$open_tag>, but found </$close_tag>";
+                }
+            }
+            # Opening tag: <foo ...>
+            elsif ($chunk =~ /^<\s*([a-zA-Z0-9_\-\.\:]+)(\s+[\s\S]*)?>$/s) {
+                my $open_tag = $1;
+                my $attrs = $2 // '';
+
+                if (my $err = validate_attributes($open_tag, $attrs)) {
+                    return $err;
+                }
+
+                $root_element_count++ if scalar(@tag_stack) == 0;
+                push @tag_stack, $open_tag;
+            }
+            else {
+                return "Invalid tag structure: $chunk";
+            }
+        }
+        else {
+            # Text content: Verify entity escaping
+            if ($chunk =~ /&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/) {
+                return "Unescaped '&' symbol found in text content";
+            }
+        }
+    }
+
+    if (@tag_stack) {
+        return "Unclosed tag(s) remaining: " . join(", ", map {"<$_>"} @tag_stack);
+    }
+
+    return undef; # Success: File is well-formed XML
+}
+
+sub check_xml_well_formedness {
+    my ($search_dirs_ref, $extensions) = @_;
+    my $ext_re = ref($extensions) eq 'ARRAY' ? join "|", @$extensions : ($extensions || 'foo');
+    my @dirs = ref($search_dirs_ref) eq 'ARRAY' ? @$search_dirs_ref : ($search_dirs_ref || '.');
+    @dirs = grep {-d $_} @dirs;
+
+    log_info("Auditing XML well-formedness across directories: " . join(", ", @dirs) . " for " . $ext_re);
+
+    my $total_checked = 0;
+    my $failed_count = 0;
+
+    find({
+        wanted   => sub {
+            my $file = $File::Find::name;
+            return unless -f $file;
+            return unless $file =~ /\.($ext_re)$/i;
+
+            $total_checked++;
+
+            open(my $fh, '<', $file) or do {
+                log_warning("Could not open $file: $!");
+                return;
+            };
+            my $content = do {
+                local $/;
+                <$fh>
+            };
+            close($fh);
+
+            my $parse_error = validate_xml_content_pure_perl($content);
+
+            if ($parse_error) {
+                $failed_count++;
+                log_error("INVALID XML [$file]: $parse_error");
+            }
+            elsif ($verbose) {
+                log_success("VALID XML [$file]");
+            }
+        },
+        no_chdir => 1
+    }, @dirs);
+
+    if ($failed_count > 0) {
+        log_error("XML Check Failed: Found $failed_count invalid file(s) out of $total_checked checked.");
+    }
+    else {
+        log_success("XML Check Passed: All $total_checked file(s) are well-formed XML.");
+    }
+
+    return $failed_count;
 }
 
 __END__
