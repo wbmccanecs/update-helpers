@@ -9,6 +9,16 @@ use Getopt::Long;
 use Term::ANSIColor qw{:constants};
 use Cwd 'cwd', 'abs_path';
 
+use FindBin;
+use lib "$FindBin::RealBin";
+
+use MyLogger qw(
+    log_info
+    log_warning
+    log_error
+    log_success
+);
+
 my $start_directory = '.';
 my $remove_if_exists = {
     "EnvironmentHelper" => "remove",
@@ -119,6 +129,10 @@ my @required_files = (
 my @unwanted = (
     'test-automation',
     '.gradle',
+);
+
+my %HTML_VOID_TAGS = map {$_ => 1} qw(
+    area base br col embed hr img input link meta param source track wbr
 );
 
 my $checks;
@@ -516,36 +530,21 @@ sub check_unused_tagdefs {
     log_info("-" x 50);
 }
 
-sub log_info {
-    my ($message, $color) = @_;
-    $color ||= CYAN;
-    print BOLD $color . "$message" . RESET . "\n";
-}
-
-sub log_warning {
-    my ($message) = @_;
-    print BOLD YELLOW "$message" . RESET . "\n";
-}
-
-sub log_error {
-    my ($message) = @_;
-    print BOLD RED "$message" . RESET . "\n";
-}
-
-sub log_success {
-    my ($message) = @_;
-    print BOLD GREEN "$message" . RESET . "\n";
+sub blank_keep_newlines {
+    my ($str) = @_;
+    $str =~ s/[^\n]/ /g;
+    return $str;
 }
 
 sub validate_attributes {
-    my ($tag_name, $attrs) = @_;
+    my ($tag_name, $attrs, $line_num) = @_;
     return undef unless defined $attrs && $attrs =~ /\S/;
 
     # Validate attribute quote closure
     while ($attrs =~ m{([a-zA-Z0-9_\-\.\:]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))}g) {
         my ($attr_name, $val_dbl, $val_sgl, $unquoted) = ($1, $2, $3, $4);
         if (defined $unquoted) {
-            return "Unquoted attribute value in tag <$tag_name>: $attr_name=$unquoted";
+            return "Line $line_num: Unquoted attribute value in tag <$tag_name>: $attr_name=$unquoted";
         }
     }
     return undef;
@@ -554,18 +553,25 @@ sub validate_attributes {
 sub validate_xml_content_pure_perl {
     my ($content) = @_;
 
-    # 1. Pre-process: Strip JSP comments, scriptlets, directives, and EL expressions
-    $content =~ s/<%--.*?--%>//gs;   # JSP comments
-    $content =~ s/<%[@=!]?.*?%>//gs; # JSP directives and scriptlets
-    $content =~ s/\$\{[^}]*\}//gs;   # JSP EL expressions (${...})
+    # 1. Pre-process: Preserve newlines while blanking out JSP comments, scriptlets, EL, comments, CDATA, PIs, DOCTYPEs
+    $content =~ s/(<%--.*?--%>)/blank_keep_newlines($1)/gse;   # JSP comments
+    $content =~ s/(<%[@=!]?.*?%>)/blank_keep_newlines($1)/gse; # JSP directives and scriptlets
+    $content =~ s/(\$\{[^}]*\})/blank_keep_newlines($1)/gse;   # JSP EL expressions (${...})
+    $content =~ s/(<!--.*?-->)/blank_keep_newlines($1)/gse;    # XML comments
+    $content =~ s/(<!\[CDATA\[.*?\]\]>)/blank_keep_newlines($1)/gse;
+    $content =~ s/(<\?.*?\?>)/blank_keep_newlines($1)/gse;
+    $content =~ s/(<!DOCTYPE.*?>)/blank_keep_newlines($1)/gse;
 
-    # 2. Strip XML comments, CDATA, Processing Instructions, and DOCTYPEs
-    $content =~ s/<!--.*?-->//gs;
-    $content =~ s/<!\[CDATA\[.*?\]\]>//gs;
-    $content =~ s/<\?.*?\?>//gs;
-    $content =~ s/<!DOCTYPE.*?>//gs;
+    # Blank out custom JSP/JSTL taglib tags (e.g., <c:if ...>, </c:if>, <fmt:...>, <mux:...>)
+    my $taglib_regex = qr{
+        </?
+        [a-zA-Z0-9_\-\.]+:[a-zA-Z0-9_\-\.]+
+        (?:\s+(?:[^"'>]|"[^"]*"|'[^']*')*)?
+        /?>
+    }xms;
+    $content =~ s/($taglib_regex)/blank_keep_newlines($1)/gse;
 
-    my @tag_stack;
+    my @tag_stack; # Stores tuples: [ $tag_name, $line_num ]
     my $root_element_count = 0;
 
     # Tag regex: Matches < ... > while allowing < and > inside single or double quotes
@@ -581,67 +587,71 @@ sub validate_xml_content_pure_perl {
         >
     }xms;
 
-    # 3. Tokenize by tags (respecting quoted < and >), stray '<', or text content
+    # 2. Tokenize by tags (respecting quoted < and >), stray '<', or text content
     while ($content =~ m{($tag_regex|[^<]+|<)}gs) {
         my $chunk = $1;
+        my $chunk_pos = pos($content) - length($chunk);
+        my $line_num = (substr($content, 0, $chunk_pos) =~ tr/\n//) + 1;
 
         if ($chunk eq '<') {
-            return "Malformed XML: Unclosed or orphaned '<' found";
+            return "Line $line_num: Malformed XML: Unclosed or orphaned '<' found";
         }
         elsif ($chunk =~ /^</) {
-            # Self-closing tag: <foo ... />
-            if ($chunk =~ /^<\s*([a-zA-Z0-9_\-\.\:]+)(?:\s+[\s\S]*)?\/>$/s) {
-                my $tag_name = $1;
-                my $attrs = $chunk;
-                $attrs =~ s/^<\s*\Q$tag_name\E//;
-                $attrs =~ s/\/>$//;
-
-                if (my $err = validate_attributes($tag_name, $attrs)) {
-                    return $err;
-                }
-                next;
-            }
-
             # Closing tag: </foo>
             if ($chunk =~ /^<\/\s*([a-zA-Z0-9_\-\.\:]+)\s*>$/s) {
                 my $close_tag = $1;
                 unless (@tag_stack) {
-                    return "Unexpected closing tag </$close_tag> with empty tag stack";
+                    return "Line $line_num: Unexpected closing tag </$close_tag> with empty tag stack";
                 }
-                my $open_tag = pop @tag_stack;
-                if ($open_tag ne $close_tag) {
-                    return "Mismatched tag: expected </$open_tag>, but found </$close_tag>";
+                my $open_entry = pop @tag_stack;
+                my ($open_tag, $open_line) = @$open_entry;
+                if (lc($open_tag) ne lc($close_tag)) {
+                    return "Line $line_num: Mismatched tag: expected </$open_tag> (opened at line $open_line), but found </$close_tag>";
                 }
+                next;
             }
-            # Opening tag: <foo ...>
-            elsif ($chunk =~ /^<\s*([a-zA-Z0-9_\-\.\:]+)(\s+[\s\S]*)?>$/s) {
-                my $open_tag = $1;
-                my $attrs = $2 // '';
 
-                if (my $err = validate_attributes($open_tag, $attrs)) {
+            # Opening or self-closing tag
+            if ($chunk =~ /^<\s*([a-zA-Z0-9_\-\.\:]+)([\s\S]*)?>$/s) {
+                my $open_tag = $1;
+                my $raw_body = $2 // '';
+                my $lc_tag = lc($open_tag);
+
+                # Determine if self-closing or an HTML void element (e.g. <link>, <img>, <meta>)
+                my $is_self_closing = ($chunk =~ /\/>$/s) || $HTML_VOID_TAGS{$lc_tag};
+
+                my $attrs = $raw_body;
+                $attrs =~ s/\/?\s*>$//;
+
+                if (my $err = validate_attributes($open_tag, $attrs, $line_num)) {
                     return $err;
                 }
 
-                $root_element_count++ if scalar(@tag_stack) == 0;
-                push @tag_stack, $open_tag;
+                unless ($is_self_closing) {
+                    $root_element_count++ if scalar(@tag_stack) == 0;
+                    push @tag_stack, [ $open_tag, $line_num ];
+                }
             }
             else {
-                return "Invalid tag structure: $chunk";
+                return "Line $line_num: Invalid tag structure: $chunk";
             }
         }
         else {
             # Text content: Verify entity escaping
-            if ($chunk =~ /&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/) {
-                return "Unescaped '&' symbol found in text content";
+            if ($chunk =~ /&(?!([a-zA-Z][a-zA-Z0-9]*|#\d+|#x[0-9a-fA-F]+);)/) {
+                my $entity_offset = $-[0];
+                my $exact_line = $line_num + (substr($chunk, 0, $entity_offset) =~ tr/\n//);
+                return "Line $exact_line: Unescaped '&' symbol found in text content";
             }
         }
     }
 
     if (@tag_stack) {
-        return "Unclosed tag(s) remaining: " . join(", ", map {"<$_>"} @tag_stack);
+        my @unclosed_msgs = map {"<$_->[0]> (line $_->[1])"} @tag_stack;
+        return "Unclosed tag(s) remaining: " . join(", ", @unclosed_msgs);
     }
 
-    return undef; # Success: File is well-formed XML
+    return undef; # Success
 }
 
 sub check_xml_well_formedness {
