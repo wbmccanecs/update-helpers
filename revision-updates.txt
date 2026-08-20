@@ -102,7 +102,7 @@ jakarta.xml.soap-api: org=jakarta.xml.soap, name=jakarta.xml.soap-api, rev=3.0.2
 jakarta.xml.ws-api: org=jakarta.xml.ws, name=jakarta.xml.ws-api, rev=4.0.3
 jakarta.xml.bind-api: org=jakarta.xml.bind, name=jakarta.xml.bind-api, rev=4.0.5
 commons-fileupload2-jakarta-servlet6: org=org.apache.commons, name=commons-fileupload2-jakarta-servlet6, rev=2.0.0-M5
-httpclient5: org=org.apache.httpcomponents.client5, name=httpclient5, rev=5.6.2
+httpclient5: org=org.apache.httpcomponents.client5, name=httpclient5, rev=5.6.3, snyk=SNYK-JAVA-ORGAPACHEHTTPCOMPONENTSCLIENT5-18857813
 httpclient5-cache: org=org.apache.httpcomponents.client5, name=httpclient5-cache, rev=5.6
 xmlbeans: org=org.apache.xmlbeans, name=xmlbeans, rev=3.0.0
 hibernate-commons-annotations: org=org.hibernate.common, name=hibernate-commons-annotations, rev=5.1.1.Final
