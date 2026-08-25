@@ -85,7 +85,7 @@ sub main {
         "httpcore",
         'taglibs-standard-impl',
         "javax.activation",
-        "javassit",
+        "javassist",
         "hamcrest-core",
     );
 
