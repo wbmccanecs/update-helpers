@@ -6,9 +6,24 @@ use File::stat;
 use File::Find;
 use File::Basename;
 use FindBin;
+use lib "$FindBin::RealBin";
 use Cwd 'abs_path';
-use Term::ANSIColor qw{:constants};
 use version;
+
+use JarClassIndexer qw(
+    load_jar_class_index
+    save_jar_to_class_index
+    extract_jar_classes_and_packages
+    get_known_jars
+    get_jar_cache
+);
+
+use MyLogger qw(
+    log_info
+    log_warning
+    log_error
+    log_success
+);
 
 my ($help, $hibernate5, $no_ui, $audit_deps, $verbose) = (0) x 5;
 
@@ -120,12 +135,15 @@ sub main {
     };
 
     my $api_provider_map = {
-        'angus-mail' => [ 'jakarta.mail' ],
+        'angus-mail'                   => [ 'jakarta.mail' ],
+        'jakarta.servlet.jsp.jstl-api' => [ 'jakarta.tags', 'jakarta.servlet.jsp.jstl', 'org.glassfish.web.jstl' ],
+        'jakarta.servlet.jsp.jstl'     => [ 'jakarta.tags', 'jakarta.servlet.jsp.jstl', 'org.glassfish.web.jstl' ],
+        'hibernate-validator'          => [ 'jakarta.validation', 'org.hibernate.validator' ],
+        'encoder-jakarta-jsp'          => [ 'owasp.encoder', 'org.owasp.encoder' ],
     };
 
     my $exclusions = {};
     my @packages;
-    my %internal_metadata_keys = map {$_ => 1} qw(keep snyk keep_both replace_from replace_to);
 
     # 1. READ ORIGINAL IVY.XML
     my $file_content;
@@ -212,7 +230,13 @@ sub main {
         elsif ($update->{$dep_name} && $update->{$dep_name}->{keep_both} && $update->{$dep_name}->{replace_to} && $present_deps{$update->{$dep_name}->{replace_to}}) {
             log_warning("Keep $dep_name (both $dep_name and " . $update->{$dep_name}->{replace_to} . " present in ivy.xml)");
             push @packages, $dep_name;
-            $replacement_str = $leading_whitespace . ($snyk_comment ? "<!-- $snyk_comment -->\n$leading_whitespace" : "") . $dependency_block . "\n";
+
+            my $modified_dependency_block = $dependency_block;
+
+            $modified_dependency_block =~ s{\s*<exclude\s+[^/>]+/>}{}g;
+            $modified_dependency_block =~ s{>\s*</dependency>}{ />};
+
+            $replacement_str = $leading_whitespace . $modified_dependency_block . "\n";
         }
         elsif (grep {$dep_name =~ $_} @remove_packages && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
             log_info("Remove $dep_name");
@@ -222,7 +246,30 @@ sub main {
         elsif ($unused_deps_to_drop{$dep_name} && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
             log_info("Remove unused dependency $dep_name (no active imports in src/)");
             $changes_made += 1;
-            $replacement_str = ""; # Deletes Snyk comment + dependency tag + newline
+
+            # Check for en situ promotion of required child transitives
+            if (exists $add_if_missing->{$dep_name} && @{$add_if_missing->{$dep_name}}) {
+                my @promoted_tags;
+                for my $child_dep (@{$add_if_missing->{$dep_name}}) {
+                    next if grep {$_ eq $child_dep} @packages; # Avoid duplicate insertions
+
+                    my $c_info = $update->{$child_dep} || {};
+                    my $c_org = $c_info->{org} || 'unknown.org';
+                    my $c_name = $c_info->{name} || $child_dep;
+                    my $c_rev = $c_info->{rev} || 'unknown';
+                    my $c_conf = $c_info->{conf} || 'runtime->default';
+
+                    log_success("  └─ En situ replacement: Substituting '$c_name' ($c_rev) in place of '$dep_name'");
+                    push @promoted_tags, "${leading_whitespace}<dependency org=\"$c_org\" name=\"$c_name\" rev=\"$c_rev\" conf=\"$c_conf\" />\n";
+                    push @packages, $c_name;
+                }
+
+                delete $add_if_missing->{$dep_name}; # Clear entry so post-processing skips re-adding at bottom
+                $replacement_str = join('', @promoted_tags);
+            }
+            else {
+                $replacement_str = ""; # Standard removal
+            }
         }
         elsif (grep {$dep_name eq $_} @packages) {
             log_warning("Remove duplicate dependency $dep_name");
@@ -513,144 +560,6 @@ sub version_compare {
     return 0;
 }
 
-my %JAR_CACHE;  # $jar_name -> { classes => {}, packages => {}, prefixes => {} }
-my %KNOWN_JARS; # $jar_name -> 1
-
-sub load_jar_class_index {
-    my $script_dir = $FindBin::RealBin;
-    my $index_file = "$script_dir/jar-class-index.txt";
-    return unless -f $index_file;
-
-    open(my $fh, '<', $index_file) or return;
-    my $loaded_count = 0;
-
-    while (my $line = <$fh>) {
-        $line =~ s/[\r\n]*//g;
-        $line =~ s/\s*#.*$//; # skip comments
-        next if $line =~ /^\s*$/;
-
-        my ($jar_name, $fqcn) = split(/\s*\|\s*/, $line, 2);
-        next unless defined $jar_name && defined $fqcn && $jar_name ne '' && $fqcn ne '';
-        next if $fqcn =~ /\$/;
-
-        $jar_name = lc($jar_name);
-        $KNOWN_JARS{$jar_name} = 1;
-
-        $JAR_CACHE{$jar_name} ||= {
-            classes  => {},
-            packages => {},
-        };
-
-        my $data = $JAR_CACHE{$jar_name};
-        $data->{classes}{$fqcn} = 1;
-
-        my $clean_fqcn = $fqcn;
-        $clean_fqcn =~ s/\$.*//;
-        $data->{classes}{$clean_fqcn} = 1;
-
-        if ($clean_fqcn =~ /^(.*)\.[^\.]+$/) {
-            $data->{packages}{$1} = 1;
-        }
-        $loaded_count++;
-    }
-    close($fh);
-    log_info("Loaded $loaded_count class entries for " . scalar(keys %KNOWN_JARS) . " JAR(s) from jar-class-index.txt") if $loaded_count > 0 && $verbose;
-}
-
-sub save_jar_to_class_index {
-    my ($jar_name, $fqcns_ref) = @_;
-    return unless defined $jar_name && defined $fqcns_ref;
-
-    my $script_dir = $FindBin::RealBin;
-    my $index_file = "$script_dir/jar-class-index.txt";
-
-    open(my $fh, '>>', $index_file) or do {
-        log_warning("Could not open $index_file for writing: $!");
-        return;
-    };
-
-    if (@$fqcns_ref) {
-        for my $fqcn (@$fqcns_ref) {
-            print $fh "$jar_name|$fqcn\n";
-        }
-    }
-    else {
-        print $fh "$jar_name|fake.class.Name\n";
-    }
-
-    close($fh);
-    log_info("Persisted " . scalar(@$fqcns_ref) . " class entries for '$jar_name' to jar-class-index.txt");
-}
-
-sub extract_jar_classes_and_packages {
-    my ($jar_path) = @_;
-    my $jar_name = lc(basename($jar_path));
-
-    # 1. Return cached index if already loaded from flat file or scanned earlier
-    if (exists $KNOWN_JARS{$jar_name} && exists $JAR_CACHE{$jar_name}) {
-        return $JAR_CACHE{$jar_name};
-    }
-
-    my %classes;
-    my %packages;
-    my @extracted_fqcns;
-
-    $JAR_CACHE{$jar_name} = {
-        classes  => \%classes,
-        packages => \%packages,
-    };
-    $KNOWN_JARS{$jar_name} = 1;
-
-    return $JAR_CACHE{$jar_name} unless -f $jar_path;
-
-    my @entry_paths;
-
-    log_info("Extracting jar classes: " . $jar_path);
-    eval {
-        require Archive::Zip;
-        my $zip = Archive::Zip->new();
-        if ($zip->read($jar_path) == Archive::Zip::AZ_OK()) {
-            for my $member ($zip->members()) {
-                push @entry_paths, $member->fileName();
-            }
-        }
-    };
-
-    if (!@entry_paths) {
-        if (my @jar_entries = `jar tf "$jar_path" 2>/dev/null`) {
-            @entry_paths = map {s/[\r\n]*//g;
-                $_} @jar_entries;
-        }
-        elsif (my @unzip_entries = `unzip -Z1 "$jar_path" 2>/dev/null`) {
-            @entry_paths = map {s/[\r\n]*//g;
-                $_} @unzip_entries;
-        }
-    }
-
-    for my $entry (@entry_paths) {
-        if ($entry =~ /^([a-zA-Z0-9_\/\$]+)\.class$/i) {
-            my $path = $1;
-            next if $path =~ /(?:module-info|package-info)$/i;
-            next if $path =~ /\$/; # Skip inner and anonymous classes containing '$'
-
-            my $fqcn = $path;
-            $fqcn =~ s#/#.#g;
-
-            push @extracted_fqcns, $fqcn;
-            $classes{$fqcn} = 1;
-
-            if ($fqcn =~ /^(.*)\.[^\.]+$/) {
-                $packages{$1} = 1;
-            }
-        }
-    }
-
-    # Save to flat file for future runs
-    save_jar_to_class_index($jar_name, \@extracted_fqcns);
-
-    return $JAR_CACHE{$jar_name};
-}
-
 sub find_jars_for_dependency {
     my ($dep_name, $update_ref, $libdir) = @_;
     my @found_jars;
@@ -663,6 +572,10 @@ sub find_jars_for_dependency {
     $libdir ||= (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
     push @search_dirs, $libdir if -d $libdir;
 
+    for my $extra_dir ('lib/test', 'lib/build', 'lib/compile') {
+        push @search_dirs, $extra_dir if -d $extra_dir;
+    }
+
     my %seen_jars;
 
     for my $dir (@search_dirs) {
@@ -672,9 +585,10 @@ sub find_jars_for_dependency {
                 my $jar_path = $_;
                 my $jar_name = lc(basename($jar_path));
 
-                if ($jar_name =~ /^\Q$dep_name\E(?:-[0-9].*|\.jar)$/i ||
-                    $jar_name =~ /^\Q$name\E(?:-[0-9].*|\.jar)$/i ||
-                    ($org && $jar_name =~ /^\Q$org\E[.-]\Q$name\E(?:-[0-9].*|\.jar)$/i)) {
+                # Allow optional IGNORE- prefix in JAR filename
+                if ($jar_name =~ /^(?:ignore-)?\Q$dep_name\E(?:-[0-9].*|\.jar)$/i ||
+                    $jar_name =~ /^(?:ignore-)?\Q$name\E(?:-[0-9].*|\.jar)$/i ||
+                    ($org && $jar_name =~ /^(?:ignore-)?\Q$org\E[.-]\Q$name\E(?:-[0-9].*|\.jar)$/i)) {
                     if (!$seen_jars{$jar_path}) {
                         push @found_jars, $jar_path;
                         $seen_jars{$jar_path} = 1;
@@ -715,10 +629,13 @@ sub is_dep_used {
         $jars_to_check{lc(basename($j))} = $j;
     }
 
-    for my $known_jar (keys %KNOWN_JARS) {
-        if ($known_jar =~ /^\Q$dep_name\E(?:-[0-9].*|\.jar)$/i ||
-            $known_jar =~ /^\Q$name\E(?:-[0-9].*|\.jar)$/i ||
-            ($org && $known_jar =~ /^\Q$org\E[.-]\Q$name\E(?:-[0-9].*|\.jar)$/i)) {
+    my $known_jars = get_known_jars();
+    my $jar_cache = get_jar_cache();
+
+    for my $known_jar (keys %$known_jars) {
+        if ($known_jar =~ /^(?:ignore-)?\Q$dep_name\E(?:-[0-9].*|\.jar)$/i ||
+            $known_jar =~ /^(?:ignore-)?\Q$name\E(?:-[0-9].*|\.jar)$/i ||
+            ($org && $known_jar =~ /^(?:ignore-)?\Q$org\E[.-]\Q$name\E(?:-[0-9].*|\.jar)$/i)) {
             $jars_to_check{$known_jar} ||= undef;
         }
     }
@@ -727,7 +644,7 @@ sub is_dep_used {
         for my $jar_key (keys %jars_to_check) {
             my $jar_data = $jars_to_check{$jar_key}
                 ? extract_jar_classes_and_packages($jars_to_check{$jar_key})
-                : $JAR_CACHE{$jar_key};
+                : $jar_cache->{$jar_key};
 
             next unless $jar_data;
 
@@ -741,7 +658,6 @@ sub is_dep_used {
                 }
             }
         }
-        # Index or JAR exists and contains zero active imports
         return 0;
     }
 
@@ -883,7 +799,7 @@ sub should_remove_transitive {
     return 0 unless defined $remove_redundant_transitives_versioned
         && ref($remove_redundant_transitives_versioned) eq 'HASH';
 
-    # Guardrails
+    # 1. Respect explicit keep flags
     if ($update_ref && exists $update_ref->{$dep_name} && $update_ref->{$dep_name}->{keep}) {
         return 0;
     }
@@ -891,32 +807,40 @@ sub should_remove_transitive {
     my $target_rev = $update_ref->{$dep_name}->{rev} if defined $update_ref && exists $update_ref->{$dep_name};
     my $effective_rev = $target_rev || $current_rev;
 
-    my $max_transitive_rev;
+    # 2. Find the highest NATIVE version supplied by surviving transitive parents
+    my $max_native_rev;
 
     for my $parent_pkg (keys %$remove_redundant_transitives_versioned) {
         if ($surviving_deps_ref && exists $surviving_deps_ref->{$parent_pkg}) {
             my $targets = $remove_redundant_transitives_versioned->{$parent_pkg};
 
             if (exists $targets->{$dep_name}) {
-                my $transitive_rev = $targets->{$dep_name};
+                # Handle structured { kept => X, native => Y } or plain version string
+                my $native_rev = ref($targets->{$dep_name}) eq 'HASH'
+                    ? $targets->{$dep_name}{native}
+                    : $targets->{$dep_name};
 
-                if (!defined $max_transitive_rev ||
-                    version_compare($transitive_rev, $max_transitive_rev) > 0) {
-                    $max_transitive_rev = $transitive_rev;
+                if (defined $native_rev) {
+                    if (!defined $max_native_rev || version_compare($native_rev, $max_native_rev) > 0) {
+                        $max_native_rev = $native_rev;
+                    }
                 }
             }
         }
     }
 
-    if (defined $max_transitive_rev) {
-        my $cmp = version_compare($effective_rev, $max_transitive_rev);
+    # 3. Decision Logic
+    if (defined $max_native_rev) {
+        my $cmp = version_compare($effective_rev, $max_native_rev);
 
         if ($cmp <= 0) {
-            log_info("Dropping redundant direct dependency $dep_name ($effective_rev <= $max_transitive_rev satisfied by surviving transitives)");
+            # Safe to remove: Parent naturally brings in a version >= your direct revision
+            log_info("Dropping redundant direct dependency $dep_name ($effective_rev <= native $max_native_rev satisfied by surviving transitives)");
             return 1;
         }
         else {
-            log_success("Keeping direct dependency $dep_name ($effective_rev > $max_transitive_rev across all transitives)");
+            # NOT safe to remove: Direct tag is actively forcing an eviction/override (e.g. 4.0.9 > native 4.0.2)
+            log_success("Keeping direct dependency $dep_name ($effective_rev > native $max_native_rev across transitives)");
             return 0;
         }
     }
@@ -1057,11 +981,23 @@ sub extract_all_referenced_packages {
         }, @local_dirs);
     }
 
-    if (defined $webapp_dir && -d $webapp_dir) {
+    my @web_resource_dirs = @src_dirs;
+    push @web_resource_dirs, $webapp_dir if defined $webapp_dir && -d $webapp_dir;
+    my %seen_dirs;
+    @web_resource_dirs = grep {-d $_ && !$seen_dirs{$_}++} @web_resource_dirs;
+
+    if (@web_resource_dirs) {
         find({
             wanted   => sub {
                 my $file = $File::Find::name;
                 return unless -f $file && $file =~ /\.(xml|jsp|jspf|tag|tld)$/i;
+
+                # Register implicit Servlet/JSP packages if any web/JSP files exist
+                if ($file =~ /\.(jsp|jspf|tag)$/i) {
+                    $register_local->('jakarta.servlet');
+                    $register_local->('jakarta.servlet.jsp');
+                }
+
                 open(my $fh, '<', $file) or return;
                 while (my $line = <$fh>) {
                     while ($line =~ /(?:class|type|value|driverClassName|dialect)="([a-zA-Z0-9_\.]+)"/g) {
@@ -1073,11 +1009,22 @@ sub extract_all_referenced_packages {
                             $register_local->($imp);
                         }
                     }
+                    if ($line =~ /%@\s*taglib\s+.*?uri=["']([^"']*)["']/) {
+                        my $uri = $1;
+                        if ($uri =~ m{^(?:jakarta\.tags[\.|/]|http://java\.sun\.com/jsp/jstl/)([-a-zA-Z0-9_]+)}) {
+                            $register_local->('jakarta.tags');
+                            $register_local->("jakarta.tags.$1");
+                        }
+                        elsif ($uri =~ m{owasp}i || $uri =~ m{encoder}i) {
+                            $register_local->('owasp.encoder');
+                            $register_local->('org.owasp.encoder');
+                        }
+                    }
                 }
                 close($fh);
             },
             no_chdir => 1
-        }, $webapp_dir);
+        }, @web_resource_dirs);
     }
 
     %referenced_packages = %local_references;
@@ -1252,11 +1199,11 @@ sub generate_transitive_map_from_deps {
     while (my $line = <$fh>) {
         chomp $line;
 
-        if ($line =~ /^(.*?)(?:[\+\\]\-)\s*(.*?)$/) {
+        if ($line =~ /^(.*?)(?:[\+\\]\-|\|\s+[\+\\]\-)\s*(.*?)$/) {
             my $prefix = $1;
             my $payload = $2;
 
-            my $depth = length($prefix) / 3;
+            my $depth = length($prefix) / 4;
 
             if ($payload =~ /([^#]+)#([^;]+);([^\s]+)/) {
                 my $org = $1;
@@ -1268,9 +1215,19 @@ sub generate_transitive_map_from_deps {
                 if ($depth > 0 && defined $stack[0]) {
                     my $root_parent = $stack[0];
 
-                    if (!exists $dynamic_transitives{$root_parent}{$name} ||
-                        version_compare($rev, $dynamic_transitives{$root_parent}{$name}) < 0) {
-                        $dynamic_transitives{$root_parent}{$name} = $rev;
+                    # First time seeing this child under root_parent -> record as resolved 'kept' revision
+                    if (!exists $dynamic_transitives{$root_parent}{$name}) {
+                        $dynamic_transitives{$root_parent}{$name} = {
+                            kept   => $rev,
+                            native => $rev,
+                        };
+                    }
+                    # Subsequent line for same child under root_parent -> recorded as evicted 'native' revision
+                    else {
+                        my $existing_native = $dynamic_transitives{$root_parent}{$name}{native};
+                        if (version_compare($rev, $existing_native) < 0) {
+                            $dynamic_transitives{$root_parent}{$name}{native} = $rev;
+                        }
                     }
                 }
             }
@@ -1626,26 +1583,6 @@ sub detect_dependencies {
     return \%dependencies;
 }
 
-sub log_info {
-    my ($message) = @_;
-    print BOLD CYAN "[INFO] $message" . RESET . "\n";
-}
-
-sub log_warning {
-    my ($message) = @_;
-    print BOLD YELLOW "[WARNING] $message" . RESET . "\n";
-}
-
-sub log_error {
-    my ($message) = @_;
-    print BOLD RED "[ERROR] $message" . RESET . "\n";
-}
-
-sub log_success {
-    my ($message) = @_;
-    print BOLD GREEN "[SUCCESS] $message" . RESET . "\n";
-}
-
 sub log_file_check {
     my ($file_path) = @_;
     if (-e $file_path) {
@@ -1864,7 +1801,12 @@ sub load_update_data {
                     $hash->{$old} = { %{$hash->{$new}} };
                     $hash->{$old}->{replace_from} = $old;
                     $hash->{$old}->{replace_to} = $new;
-                    $hash->{$old}->{keep_both} = ($opts{keep} // 0);
+                    $hash->{$old}->{keep_both} = ($opts{keep_both} // $opts{keep} // 0);
+
+                    # Preserve the legacy dependency name and clear Snyk metadata
+                    $hash->{$old}->{name} = $old;
+                    delete $hash->{$old}->{org} if $hash->{$old}->{keep_both};
+                    delete $hash->{$old}->{snyk} if $hash->{$old}->{keep_both}; # DO NOT attach Snyk ID to legacy lib
                 }
                 else {
                     log_warning("missing key: $new");
