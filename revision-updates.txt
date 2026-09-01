@@ -8,7 +8,7 @@ spring-context-support: org=org.springframework, name=spring-context-support, re
 spring-expression: org=org.springframework, name=spring-expression, rev=6.2.19
 spring-jms: org=org.springframework, name=spring-jms, rev=6.2.19
 spring-messaging: org=org.springframework, name=spring-messaging, rev=6.2.19
-spring-test: org=org.springframework, name=spring-test, rev=6.2.19
+spring-test: org=org.springframework, name=spring-test, rev=6.2.19, conf=compile->default
 spring-tx: org=org.springframework, name=spring-tx, rev=6.2.19
 spring-data-jpa: org=org.springframework.data, name=spring-data-jpa, rev=3.5.12
 spring-web: org=org.springframework, name=spring-web, rev=6.2.19
@@ -37,7 +37,7 @@ commons-beanutils: org=commons-beanutils, name=commons-beanutils, rev=1.11.0
 commons-dbcp2: org=org.apache.commons, name=commons-dbcp2, rev=2.14.0
 commons-io: org=commons-io, name=commons-io, rev=2.22.0
 angus-mail: org=org.eclipse.angus, name=angus-mail, rev=2.1.0-M1
-joda-time: org=joda-time, name=joda-time, rev=2.14.2
+joda-time: org=joda-time, name=joda-time, rev=2.14.3
 jaxen: org=jaxen, name=jaxen, rev=2.0.6
 
 # Logging
@@ -53,15 +53,16 @@ junit: org=junit, name=junit, rev=4.13.2, conf=compile->default, keep=1
 mockito-core: org=org.mockito, name=mockito-core, rev=5.23.0, conf=compile->default
 
 # Web Runtime
-encoder-jakarta-jsp: org=org.owasp.encoder, name=encoder-jakarta-jsp, rev=1.4.0
+encoder-jakarta-jsp: org=org.owasp.encoder, name=encoder-jakarta-jsp, rev=1.4.0, providers=owasp.encoder|org.owasp.encoder|owasp.encoder.jakarta
+encoder: org=org.owasp.encoder, name=encoder, rev=1.3.1, providers=owasp.encoder|owasp.encoder.jakarta|org.owasp.encoder
 sitemesh: org=opensymphony, name=sitemesh, rev=2.7.0-M1
 
 # WEB COMPILE
 jakarta.servlet-api: org=jakarta.servlet, name=jakarta.servlet-api, rev=6.0.0, conf=compile->default
 jakarta.servlet.jsp-api: org=jakarta.servlet.jsp, name=jakarta.servlet.jsp-api, rev=4.0.0, conf=compile->default
 jakarta.servlet.jsp.jstl: org=org.glassfish.web, name=jakarta.servlet.jsp.jstl, rev=3.0.1
-jakarta.servlet.jsp.jstl-api: org=jakarta.servlet.jsp.jstl, name=jakarta.servlet.jsp.jstl-api, rev=3.0.2, conf=compile->default
-lombok: org=org.projectlombok, name=lombok, rev=1.18.46, keep=1
+jakarta.servlet.jsp.jstl-api: org=jakarta.servlet.jsp.jstl, name=jakarta.servlet.jsp.jstl-api, rev=3.0.2, conf=runtime->default
+lombok: org=org.projectlombok, name=lombok, rev=1.18.46, conf=compile->default, keep=1
 jakarta.annotation-api: org=jakarta.annotation, name=jakarta.annotation-api, rev=3.0.0, keep=1, conf=compile->default
 byte-buddy-agent: org=net.bytebuddy, name=byte-buddy-agent, rev=1.17.8, conf=compile->default
 
@@ -81,8 +82,8 @@ cas-client-core: org=org.apereo.cas.client, name=cas-client-core, rev=4.0.4
 nimbus-jose-jwt: org=com.nimbusds, name=nimbus-jose-jwt, rev=10.9.1
 
 # Other
-poi: org=org.apache.poi, name=poi, rev=5.4.1
-poi-ooxml: org=org.apache.poi, name=poi-ooxml, rev=5.4.1
+poi: org=org.apache.poi, name=poi, rev=5.5.1
+poi-ooxml: org=org.apache.poi, name=poi-ooxml, rev=5.5.1
 poi-ooxml-schemas: org=org.apache.poi, name=poi-ooxml-schemas, rev=4.1.2, keep=1
 tika-core: org=org.apache.tika, name=tika-core, rev=3.3.1
 tika-parsers-standard-package: org=org.apache.tika, name=tika-parsers-standard-package, rev=3.3.1
@@ -91,7 +92,7 @@ tika-parser-sqlite3-package: org=org.apache.tika, name=tika-parser-sqlite3-packa
 # OTHER OTHER
 jackson-annotations: org=com.fasterxml.jackson.core, name=jackson-annotations, rev=2.22
 jackson-core: org=com.fasterxml.jackson.core, name=jackson-core, rev=2.22.1
-jackson-databind: org=com.fasterxml.jackson.core, name=jackson-databind, rev=2.22.1, snyk=SNYK-JAVA-COMFASTERXMLJACKSONCORE-17440598
+jackson-databind: org=com.fasterxml.jackson.core, name=jackson-databind, rev=2.22.2, snyk=SNYK-JAVA-COMFASTERXMLJACKSONCORE-19477042
 jackson-datatype-jsr310: org=com.fasterxml.jackson.datatype, name=jackson-datatype-jsr310, rev=2.22.1, keep=1
 jackson-datatype-json-org: org=com.fasterxml.jackson.datatype, name=jackson-datatype-json-org, rev=2.22.1
 itextpdf: org=com.itextpdf, name=itextpdf, rev=5.5.13.5
@@ -102,11 +103,10 @@ jakarta.xml.soap-api: org=jakarta.xml.soap, name=jakarta.xml.soap-api, rev=3.0.2
 jakarta.xml.ws-api: org=jakarta.xml.ws, name=jakarta.xml.ws-api, rev=4.0.3
 jakarta.xml.bind-api: org=jakarta.xml.bind, name=jakarta.xml.bind-api, rev=4.0.5
 commons-fileupload2-jakarta-servlet6: org=org.apache.commons, name=commons-fileupload2-jakarta-servlet6, rev=2.0.0-M5
-httpclient5: org=org.apache.httpcomponents.client5, name=httpclient5, rev=5.6.3, snyk=SNYK-JAVA-ORGAPACHEHTTPCOMPONENTSCLIENT5-18857813
+httpclient5: org=org.apache.httpcomponents.client5, name=httpclient5, rev=5.6.4, snyk=SNYK-JAVA-ORGAPACHEHTTPCOMPONENTSCLIENT5-19432178
 httpclient5-cache: org=org.apache.httpcomponents.client5, name=httpclient5-cache, rev=5.6
 xmlbeans: org=org.apache.xmlbeans, name=xmlbeans, rev=3.0.0
 hibernate-commons-annotations: org=org.hibernate.common, name=hibernate-commons-annotations, rev=5.1.1.Final
-encoder: org=org.owasp.encoder, name=encoder, rev=1.3.1
 slf4j-log4j12: org=org.slf4j, name=slf4j-log4j12, rev=1.7.34
 slf4j-reload4j: org=org.slf4j, name=slf4j-reload4j, rev=2.0.1
 jakarta.validation-api: org=jakarta.validation, name=jakarta.validation-api, rev=3.1.1
