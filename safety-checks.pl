@@ -89,10 +89,10 @@ my $iml_patterns = {
     'jdkName="(?!21)(.*)"' => "JDK",
 };
 my $jsp_patterns = {
-    "javax\\.servlet\\.jsp"                                                    => "javax JSP API",
-    "(http://java.sun.com/jsp|https://www.owasp.org|http://displaytag.sf.net)" => "old taglibs",
-    "<enc:forJavaScriptBlockvalue"                                             => "enc:forJavaScriptBlockvalue",
-    "<form:form.*commandName="                                                 => "commandName",
+    "javax\\.servlet\\.jsp"                           => "javax JSP API",
+    "(http://java.sun.com/jsp|https://www.owasp.org)" => "old taglibs",
+    "<enc:forJavaScriptBlockvalue"                    => "enc:forJavaScriptBlockvalue",
+    "<form:form.*commandName="                        => "commandName",
 };
 my $js_patterns = {
     '^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => 'not sanitized $3',

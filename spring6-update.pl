@@ -67,7 +67,6 @@ my $jsp_patterns = {
     "(<form:form( .*)?) commandName="                                         => '$1 modelAttribute=',
     "http://java.sun.com/jsp/jstl/(.*)"                                       => 'jakarta.tags.$1',
     "https?://www.owasp.org/index.php/OWASP_Java_Encoder_Project(#advanced)?" => "owasp.encoder.jakarta",
-    "http://(displaytag).sf.net"                                              => 'jakarta.tags.$1',
 };
 my $js_patterns = {
     '^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => q!$1var sanitizedHtml = DOMPurify.sanitize($4, { ADD_TAGS: ['script'] });! . "\n" . q!$1$2sanitizedHtml$5!,
