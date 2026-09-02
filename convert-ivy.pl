@@ -201,7 +201,10 @@ sub main {
 
             my $modified_dependency_block = $dependency_block;
             $modified_dependency_block =~ s{\s*<exclude\s+[^/>]+/>}{}g;
-            $modified_dependency_block =~ s{>\s*</dependency>}{ />};
+            # Collapse to self-closing only if the dependency has no remaining inner content
+            if ($modified_dependency_block =~ /^(\s*<dependency\b[^>]*>)(?:\s*)<\/dependency>\s*$/s) {
+                $modified_dependency_block = $1 . ' />';
+            }
 
             # Omit Snyk comments for legacy keep_both dependencies
             $replacement_str = $leading_whitespace . $modified_dependency_block . "\n";
@@ -271,7 +274,10 @@ sub main {
             }
 
             $modified_dependency_block =~ s{\s*<exclude\s+[^/>]+/>}{}g;
-            $modified_dependency_block =~ s{>\s*</dependency>}{ />};
+            # Collapse to self-closing only if the dependency has no remaining inner content
+            if ($modified_dependency_block =~ /^(\s*<dependency\b[^>]*>)(?:\s*)<\/dependency>\s*$/s) {
+                $modified_dependency_block = $1 . ' />';
+            }
 
             my $comment_prefix = $snyk_comment ? "<!-- $snyk_comment -->\n$leading_whitespace" : "";
             $replacement_str = $leading_whitespace . $comment_prefix . $modified_dependency_block . "\n";
