@@ -12,85 +12,86 @@ use Cwd 'cwd', 'abs_path';
 my $start_directory = '.';
 my $dry_run = 0;
 my $remove_if_exists = {
-    "EnvironmentHelper" => "warn",
-    "FilterConfig" => "warn",
-    "FilterConfigTest" => "warn",
-    "AuthorizationDeniedController" => "remove",
+    "EnvironmentHelper"                 => "warn",
+    "FilterConfig"                      => "warn",
+    "FilterConfigTest"                  => "warn",
+    "AuthorizationDeniedController"     => "remove",
     "AuthorizationDeniedControllerTest" => "remove",
-    "LogoutController" => "remove",
-    "LogoutControllerTest" => "remove",
+    "LogoutController"                  => "remove",
+    "LogoutControllerTest"              => "remove",
 };
 my $java_patterns = {
-    'org\.apache\.commons\.lang\.' => 'org.apache.commons.lang3.',
-    'org\.apache\.commons\.collections\.' => 'org.apache.commons.collections4.',
-    "org\\.apache\\.http\\." => 'org.apache.hc.client5.http.',
-    'org\.apache\.commons\.httpclient\.' => 'org.apache.hc.core5.http.',
-    '([\(\s])javax\.(?!cache|mail|management|naming|net|sql|xml)' => '$1jakarta.',
+    'org\.apache\.commons\.lang\.'                                                                                                                              => 'org.apache.commons.lang3.',
+    'org\.apache\.commons\.collections\.'                                                                                                                       => 'org.apache.commons.collections4.',
+    "org\\.apache\\.http\\."                                                                                                                                    => 'org.apache.hc.client5.http.',
+    'org\.apache\.commons\.httpclient\.'                                                                                                                        => 'org.apache.hc.core5.http.',
+    '([\(\s])javax\.(?!cache|mail|management|naming|net|sql|xml)'                                                                                               => '$1jakarta.',
     '([\(\s])javax\.(?!cache|crypto|mail|management|naming|net|sql|xml\.(?>XMLConstants|catalog|datatype|namespace|parsers|stream|transform|validation|xpath))' => '$1jakarta.',
-    "^import *com\\.ibm\\.mq\\.jms" => 'import com.ibm.mq.jakarta.jms',
-    '^( *).*"MQ_QMGRNAME".*$' => '$1System.setProperty("MQCHLLIB", "W:/MQ/devtools/ccdt/");',
-    "^( *).*MgicQueueConnectionFactory.setCluster.*" => '$1System.setProperty("MQCHLTAB", "INT.RQDM4TS.JSON");',
-    "(?<!Service)\\.findOne\\(((?:[^()]+|\\((?1)\\))*?)\\)" => '.findById($1).orElse(null)',
-    "requestMappingHandlerAdapter" => 'createRequestMappingHandlerAdapter',
-    "com\\.mgic\\.system\\.Environment" => 'com.mgic.spring.Environment',
-    "import .*\\.EnvironmentHelper" => 'import com.mgic.spring.Environment',
-    '(?<!\w)Environment\.(get|is)' => 'environment.$1',
-    "([Ee])nvironmentHelper" => '$1nvironment',
-    'ConnectModuleDataSource' => 'CyberArkDatasource',
-    'org\.mockito\.Matchers\.' => 'org.mockito.ArgumentMatchers.',
-    '^\s*import org\.powermock\.modules\.junit4\.PowerMockRunner\s*;\s*$' => 'import org.mockito.junit.MockitoJUnitRunner;',
-    '^\s*import\s+(static\s+)?org\.powermock\.(api|core)\..*$' => '',
-    '^import static org.mockito.ArgumentMatchers.anyObject' => 'import static org.mockito.ArgumentMatchers.any',
-    '^\s*\@PrepareForTest\(.*$' => '',
-    '^\s*\@PowerMockIgnore\(.*$' => '',
-    '^\s*\@RunWith\(PowerMockRunner' => '@RunWith(MockitoJUnitRunner',
-    '^\s*PowerMockito\..*$' => '',
-    'CyberArkDatasource' => 'CyberArkDataSource',
-    'import +org.apache.log4j.Logger *;' => "import org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;",
-    'Logger\.getLogger\(' => 'LoggerFactory.getLogger(',
+    "^import *com\\.ibm\\.mq\\.jms"                                                                                                                             => 'import com.ibm.mq.jakarta.jms',
+    '^( *).*"MQ_QMGRNAME".*$'                                                                                                                                   => '$1System.setProperty("MQCHLLIB", "W:/MQ/devtools/ccdt/");',
+    "^( *).*MgicQueueConnectionFactory.setCluster.*"                                                                                                            => '$1System.setProperty("MQCHLTAB", "INT.RQDM4TS.JSON");',
+    "(?<!Service)\\.findOne\\(((?:[^()]+|\\((?1)\\))*?)\\)"                                                                                                     => '.findById($1).orElse(null)',
+    "requestMappingHandlerAdapter"                                                                                                                              => 'createRequestMappingHandlerAdapter',
+    "com\\.mgic\\.system\\.Environment"                                                                                                                         => 'com.mgic.spring.Environment',
+    "import .*\\.EnvironmentHelper"                                                                                                                             => 'import com.mgic.spring.Environment',
+    '(?<!\w)Environment\.(get|is)'                                                                                                                              => 'environment.$1',
+    "([Ee])nvironmentHelper"                                                                                                                                    => '$1nvironment',
+    'ConnectModuleDataSource'                                                                                                                                   => 'CyberArkDatasource',
+    'org\.mockito\.Matchers\.'                                                                                                                                  => 'org.mockito.ArgumentMatchers.',
+    '^\s*import org\.powermock\.modules\.junit4\.PowerMockRunner\s*;\s*$'                                                                                       => 'import org.mockito.junit.MockitoJUnitRunner;',
+    '^\s*import\s+(static\s+)?org\.powermock\.(api|core)\..*$'                                                                                                  => '',
+    '^import static org.mockito.ArgumentMatchers.anyObject'                                                                                                     => 'import static org.mockito.ArgumentMatchers.any',
+    '^\s*\@PrepareForTest\(.*$'                                                                                                                                 => '',
+    '^\s*\@PowerMockIgnore\(.*$'                                                                                                                                => '',
+    '^\s*\@RunWith\(PowerMockRunner'                                                                                                                            => '@RunWith(MockitoJUnitRunner',
+    '^\s*PowerMockito\..*$'                                                                                                                                     => '',
+    'CyberArkDatasource'                                                                                                                                        => 'CyberArkDataSource',
+    'import +org.apache.log4j.Logger *;'                                                                                                                        => "import org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;",
+    'Logger\.getLogger\('                                                                                                                                       => 'LoggerFactory.getLogger(',
 };
 my $optional_java_patterns = {
     "new *(Long|Integer|Short|Byte|Float|Double|Boolean)\\(" => '$1.valueOf(',
-    "new (\\w+)<\\w+>" => 'new $1<>',
-    "new (\\w+)<\\w+, \\w+>" => 'new $1<>',
+    "new (\\w+)<\\w+>"                                       => 'new $1<>',
+    "new (\\w+)<\\w+, \\w+>"                                 => 'new $1<>',
 };
 my $xml_patterns = {
-    "org\\.jasig" => "org.apereo",
-    "JDK_(?!21)" => "JDK_21",
+    "org\\.jasig"                       => "org.apereo",
+    "JDK_(?!21)"                        => "JDK_21",
     "http://java.sun.com/xml/ns/javaee" => "https://jakarta.ee/xml/ns/jakartaee",
-    "/web-app_3_0.xsd" => "/web-app_6_0.xsd",
-    ",nagios," => ",",
-    ",nagios" => "",
-    "nagios," => "",
+    "/web-app_3_0.xsd"                  => "/web-app_6_0.xsd",
+    ",nagios,"                          => ",",
+    ",nagios"                           => "",
+    "nagios,"                           => "",
 };
 my $jsp_patterns = {
-    "(<form:form( .*)?) commandName=" => '$1 modelAttribute=',
-    "http://java.sun.com/jsp/jstl/(.*)" => 'jakarta.tags.$1',
+    "(<form:form( .*)?) commandName="                                         => '$1 modelAttribute=',
+    "http://java.sun.com/jsp/jstl/(.*)"                                       => 'jakarta.tags.$1',
     "https?://www.owasp.org/index.php/OWASP_Java_Encoder_Project(#advanced)?" => "owasp.encoder.jakarta",
+    "http://(displaytag).sf.net"                                              => 'jakarta.tags.$1',
 };
 my $js_patterns = {
-    '^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => q!$1var sanitizedHtml = DOMPurify.sanitize($4, { ADD_TAGS: ['script'] });!."\n".q!$1$2sanitizedHtml$5!,
+    '^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => q!$1var sanitizedHtml = DOMPurify.sanitize($4, { ADD_TAGS: ['script'] });! . "\n" . q!$1$2sanitizedHtml$5!,
 };
 my $properties_patterns = {
-    "content.ts.mgicint.net" => "content.mgic.com",
+    "content.ts.mgicint.net"         => "content.mgic.com",
     "(rd|qa).content.mgic.(com|net)" => "content.mgic.com",
-    '\.dc01\.' => '.',
+    '\.dc01\.'                       => '.',
 };
 my $yaml_patterns = {
     "ci-core.yml" => "ci-core.java21.yml",
 };
 
-my ($help,$checkJava,$checkJsp,$checkJs,$checkProperties,$checkXml,$checkYml) = (0) x 7;
+my ($help, $checkJava, $checkJsp, $checkJs, $checkProperties, $checkXml, $checkYml) = (0) x 7;
 
 my %checkMap = (
-    'java' => \$checkJava,
-    'jsp' => \$checkJsp,
-    'js' => \$checkJs,
-    'prop' => \$checkProperties,
+    'java'       => \$checkJava,
+    'jsp'        => \$checkJsp,
+    'js'         => \$checkJs,
+    'prop'       => \$checkProperties,
     'properties' => \$checkProperties,
-    'xml' => \$checkXml,
-    'yml' => \$checkYml,
-    'yaml' => \$checkYml,
+    'xml'        => \$checkXml,
+    'yml'        => \$checkYml,
+    'yaml'       => \$checkYml,
 );
 
 GetOptions(
@@ -105,7 +106,7 @@ for my $arg (@ARGV) {
     ${$checkMap{$key}} = 1 if exists $checkMap{$key};
 }
 
-my $checkAll = (scalar @ARGV == 0 ) & !($checkJava + $checkJsp + $checkJs + $checkProperties + $checkXml + $checkYml);
+my $checkAll = (scalar @ARGV == 0) & !($checkJava + $checkJsp + $checkJs + $checkProperties + $checkXml + $checkYml);
 
 my $abs_start_directory_resolved = abs_path($start_directory);
 if (!defined $abs_start_directory_resolved) {
@@ -166,19 +167,19 @@ sub upgrade_to_spring6 {
 
             if (
                 $full_path_relative eq './.git' ||
-                $full_path_relative eq './target' ||
-                $full_path_relative eq './build' ||
-                $full_path_relative eq './node_modules' ||
-                $full_path_relative eq './bin' ||
-                $full_path_relative eq './out' ||
-                $full_path_relative eq './deploy' ||
-                $full_path_relative eq './reports' ||
-                $full_path_relative eq './test-automation' ||
-                $full_path_relative eq './test-bin' ||
-                $full_path_relative eq './war/META-INF' ||
-                $full_path_relative eq './war/WEB-INF/classes' ||
-                $full_path_relative eq './war/WEB-INF/lib' ||
-                $full_path_relative eq './.settings' # Eclipse project files
+                    $full_path_relative eq './target' ||
+                    $full_path_relative eq './build' ||
+                    $full_path_relative eq './node_modules' ||
+                    $full_path_relative eq './bin' ||
+                    $full_path_relative eq './out' ||
+                    $full_path_relative eq './deploy' ||
+                    $full_path_relative eq './reports' ||
+                    $full_path_relative eq './test-automation' ||
+                    $full_path_relative eq './test-bin' ||
+                    $full_path_relative eq './war/META-INF' ||
+                    $full_path_relative eq './war/WEB-INF/classes' ||
+                    $full_path_relative eq './war/WEB-INF/lib' ||
+                    $full_path_relative eq './.settings' # Eclipse project files
             ) {
                 $File::Find::prune = 1; # Don't traverse into this directory
                 return;
@@ -228,7 +229,7 @@ sub upgrade_to_spring6 {
 
         if ($slurp ne $original_slurp) {
             $file_has_match = 1;
-            ++ $file_changes;
+            ++$file_changes;
             print BOLD CYAN "  Saving changes\n" . RESET;
 
             open my $out_fh, ">", $_ or do {
@@ -254,10 +255,12 @@ sub perform_substitutions {
             if ($slurp =~ m/\$[1-9]/) {
                 warn BOLD RED "$file_path_raw contains string that looks like matching group so cannot be updated" . RESET . "\n";
                 last;
-            } else {
+            }
+            else {
                 if ($dry_run && $slurp =~ m/$compiled_patterns->{$pattern_regex_key}/) {
                     warn BOLD YELLOW "$file_path_raw found match: $pattern_regex_key" . RESET . "\n";
-                } else {
+                }
+                else {
                     while ($slurp =~ s/$compiled_patterns->{$pattern_regex_key}/$patterns_ref->{$pattern_regex_key}/xs) {
                         my @matches = (0, $1, $2, $3, $4, $5, $6, $7, $8, $9);
                         $slurp =~ s/\$([1-9])/$matches[$1]/ge;
@@ -269,7 +272,8 @@ sub perform_substitutions {
                     }
                 }
             }
-        } else {
+        }
+        else {
             my $output_string = $patterns_ref->{$pattern_regex_key};
             if ($slurp =~ s/$compiled_patterns->{$pattern_regex_key}/$output_string/xsg) {
                 print BOLD YELLOW "$file_path_raw " . ($output_string || $pattern_regex_key) . "\n" . RESET;
