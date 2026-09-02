@@ -503,8 +503,11 @@ sub check_unused_tagdefs {
 
         open my $jsp_fh, "<", $_ or return;
         while (my $line = <$jsp_fh>) {
-            # Match element usages like <c:if, <fmt:formatDate, or xmlns:c=
             while ($line =~ /<([a-zA-Z0-9_-]+):/g) {
+                $used_prefixes{$1} = 1;
+            }
+
+            while ($line =~ /\$\{?\s*([a-zA-Z0-9_-]+):[a-zA-Z0-9_-]+\s*\(/g) {
                 $used_prefixes{$1} = 1;
             }
         }
@@ -553,7 +556,7 @@ sub validate_attributes {
 sub validate_xml_content_pure_perl {
     my ($content) = @_;
 
-    # 1. Pre-process: Preserve newlines while blanking out JSP comments, scriptlets, EL, comments, CDATA, PIs, DOCTYPEs
+    # 1. Pre-process: Preserve newlines while blanking out non-XML text blocks
     $content =~ s/(<%--.*?--%>)/blank_keep_newlines($1)/gse;   # JSP comments
     $content =~ s/(<%[@=!]?.*?%>)/blank_keep_newlines($1)/gse; # JSP directives and scriptlets
     $content =~ s/(\$\{[^}]*\})/blank_keep_newlines($1)/gse;   # JSP EL expressions (${...})
@@ -561,6 +564,10 @@ sub validate_xml_content_pure_perl {
     $content =~ s/(<!\[CDATA\[.*?\]\]>)/blank_keep_newlines($1)/gse;
     $content =~ s/(<\?.*?\?>)/blank_keep_newlines($1)/gse;
     $content =~ s/(<!DOCTYPE.*?>)/blank_keep_newlines($1)/gse;
+
+    # FIX: Blank out inner content of <script> and <style> tags to ignore JS/CSS ampersands (&&, &)
+    $content =~ s{(<script\b[^>]*>)(.*?)(</script>)}{$1 . blank_keep_newlines($2) . $3}gse;
+    $content =~ s{(<style\b[^>]*>)(.*?)(</style>)}{$1 . blank_keep_newlines($2) . $3}gse;
 
     # Blank out custom JSP/JSTL taglib tags (e.g., <c:if ...>, </c:if>, <fmt:...>, <mux:...>)
     my $taglib_regex = qr{
