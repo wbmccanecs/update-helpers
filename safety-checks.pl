@@ -57,6 +57,7 @@ my $java_patterns = {
     '\.getConnectInfo\W'                                                                                                                                             => 'replace with getConnectInfoForURL',
     'import org.powermock'                                                                                                                                           => 'remove powermock',
     'import +org.apache.log4j.Logger'                                                                                                                                => 'remove old log4j',
+    'import +org.apache.commons.logging'                                                                                                                             => 'remove commons-logging',
     'new (Integer|Short|Long|Byte)[^\w]'                                                                                                                             => 'fix $1 boxing',
     '\.(setRemovedAbandoned)\('                                                                                                                                      => 'replace $1 with setRemoveAbandonedOnMaintenance',
     '\.(setTimeBetweenEvictionRunsMillis)\('                                                                                                                         => 'replace $1 with setDurationBetweenEvictionRuns',
@@ -71,6 +72,7 @@ my $java_patterns = {
     'org\.hibernate\.annotations\.Named'                                                                                                                             => 'use JPA NamedNativeQuery',
     '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s+\w+(?:\s*[=;,])'                => 'FQCN member declaration: $1',
     '^(?:[^/]|/(?!/))*?\bnew\s+((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s*\('                                                                                => 'FQCN construction: $1',
+    '(JMSC\.MQJMS_(\w+))'                                                                                                                                            => 'replace $1 with WMQConstants.WMQ_$2',
 };
 my $xml_patterns = {
     "org\\.jasig"                                     => "jasig CAS",
