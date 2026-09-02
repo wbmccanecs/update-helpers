@@ -47,7 +47,7 @@ if ($help) {
 }
 
 # Internal script metadata fields that should NOT be injected as XML attributes
-my %internal_metadata_keys = map {$_ => 1} qw(keep snyk keep_both replace_from replace_to);
+my %internal_metadata_keys = map {$_ => 1} qw(keep snyk keep_both replace_from replace_to providers);
 
 sub main {
     my %unused_deps_to_drop;
@@ -134,13 +134,7 @@ sub main {
         ],
     };
 
-    my $api_provider_map = {
-        'angus-mail'                   => [ 'jakarta.mail' ],
-        'jakarta.servlet.jsp.jstl-api' => [ 'jakarta.tags', 'jakarta.servlet.jsp.jstl', 'org.glassfish.web.jstl' ],
-        'jakarta.servlet.jsp.jstl'     => [ 'jakarta.tags', 'jakarta.servlet.jsp.jstl', 'org.glassfish.web.jstl' ],
-        'hibernate-validator'          => [ 'jakarta.validation', 'org.hibernate.validator' ],
-        'encoder-jakarta-jsp'          => [ 'owasp.encoder', 'org.owasp.encoder' ],
-    };
+    my $api_provider_map = {};
 
     my $exclusions = {};
     my @packages;
@@ -162,38 +156,12 @@ sub main {
         $present_deps{$1} = 1;
     }
 
-    my $remove_redundant_transitives_versioned = {};
-
     # ------------------------------------------------------------------
-    # PRE-PASS AUDIT: DETECT UNUSED BEFORE STAGE 1 REPLACEMENT
+    # STAGE 1: IN-PLACE REVISION & ALIAS UPDATES (Pre-Audit Transformation)
     # ------------------------------------------------------------------
-    if ($audit_deps) {
-        my $clean_content = $file_content;
-        $clean_content =~ s{
-            (<dependency\s+(?:[^"'>]|"[^"]*"|'[^']*')+?)
-            (?:\s*/>|\s*>\s*(?:<exclude\s+[^/>]+/>\s*)*\s*</dependency>)
-        }{$1 />}gsx;
+    my $updated_content = $file_content;
 
-        my $clean_file = "$ivy_file-clean";
-        open(my $clean_fh, ">", $clean_file) or die "Error: could not write clean file '$clean_file': $!";
-        print $clean_fh $clean_content;
-        close $clean_fh;
-
-        update_deps_file($clean_file, $deps_file, $changes_made > 0);
-        $remove_redundant_transitives_versioned = generate_transitive_map_from_deps($deps_file);
-
-        my $unused_ref = find_unused_dependencies(
-            $file_content, \%used_deps_to_keep, $update,
-            \@remove_packages, \@packages, $remove_redundant_transitives_versioned,
-            $libdir, $api_provider_map, $add_if_missing
-        );
-        %unused_deps_to_drop = %$unused_ref;
-    }
-
-    # ------------------------------------------------------------------
-    # STAGE 1: IN-PLACE UPDATES & REMOVALS
-    # ------------------------------------------------------------------
-    $file_content =~ s{
+    $updated_content =~ s{
     ^ ([ \t]*)
     (?: <!-- \s* (SNYK-[^>]+?) \s* --> \s* \r?\n [ \t]* )?
     (
@@ -232,49 +200,21 @@ sub main {
             push @packages, $dep_name;
 
             my $modified_dependency_block = $dependency_block;
-
             $modified_dependency_block =~ s{\s*<exclude\s+[^/>]+/>}{}g;
             $modified_dependency_block =~ s{>\s*</dependency>}{ />};
 
+            # Omit Snyk comments for legacy keep_both dependencies
             $replacement_str = $leading_whitespace . $modified_dependency_block . "\n";
         }
-        elsif (grep {$dep_name =~ $_} @remove_packages && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
-            log_info("Remove $dep_name");
+        elsif (grep {$dep_name =~ /$_/} @remove_packages) {
+            log_info("Remove $dep_name (matching \@remove_packages rule)");
             $changes_made += 1;
             $replacement_str = ""; # Deletes Snyk comment + dependency tag + newline
-        }
-        elsif ($unused_deps_to_drop{$dep_name} && !($update->{$dep_name} && $update->{$dep_name}->{keep})) {
-            log_info("Remove unused dependency $dep_name (no active imports in src/)");
-            $changes_made += 1;
-
-            # Check for en situ promotion of required child transitives
-            if (exists $add_if_missing->{$dep_name} && @{$add_if_missing->{$dep_name}}) {
-                my @promoted_tags;
-                for my $child_dep (@{$add_if_missing->{$dep_name}}) {
-                    next if grep {$_ eq $child_dep} @packages; # Avoid duplicate insertions
-
-                    my $c_info = $update->{$child_dep} || {};
-                    my $c_org = $c_info->{org} || 'unknown.org';
-                    my $c_name = $c_info->{name} || $child_dep;
-                    my $c_rev = $c_info->{rev} || 'unknown';
-                    my $c_conf = $c_info->{conf} || 'runtime->default';
-
-                    log_success("  └─ En situ replacement: Substituting '$c_name' ($c_rev) in place of '$dep_name'");
-                    push @promoted_tags, "${leading_whitespace}<dependency org=\"$c_org\" name=\"$c_name\" rev=\"$c_rev\" conf=\"$c_conf\" />\n";
-                    push @packages, $c_name;
-                }
-
-                delete $add_if_missing->{$dep_name}; # Clear entry so post-processing skips re-adding at bottom
-                $replacement_str = join('', @promoted_tags);
-            }
-            else {
-                $replacement_str = ""; # Standard removal
-            }
         }
         elsif (grep {$dep_name eq $_} @packages) {
             log_warning("Remove duplicate dependency $dep_name");
             $changes_made += 1;
-            $replacement_str = ""; # Deletes Snyk comment + dependency tag + newline
+            $replacement_str = "";
         }
         else {
             push @packages, $dep_name;
@@ -289,6 +229,7 @@ sub main {
 
                 my $update_dep_name = $update_entry_ref->{name} || $dep_name;
                 my $is_package_name_changing = ($update_entry_ref->{org} ne $dep_org || $update_dep_name ne $dep_name);
+
                 if (defined $current_rev && !$is_package_name_changing && !$should_keep_rev) {
                     my $cmp = version_compare($current_rev, $new_rev_candidate);
                     if ($cmp > 0) {
@@ -301,7 +242,15 @@ sub main {
                     foreach my $key (keys %$update_entry_ref) {
                         next if $internal_metadata_keys{$key};
                         my $new_val = $update_entry_ref->{$key};
-                        $new_val = $current_rev if $key eq 'rev' && $should_keep_rev;
+
+                        # Allow updating dependency name when alias/package changes (e.g., javax.annotation-api -> jakarta.annotation-api)
+                        if ($key eq 'name' && $new_val ne $dep_name) {
+                            if ($modified_dependency_block =~ s/\bname="([^"]*)"/name="$new_val"/i) {
+                                log_success("Update dependency name $dep_name -> $new_val");
+                                $changes_made += 1;
+                            }
+                            next;
+                        }
 
                         if ($modified_dependency_block =~ s/\b$key="([^"]*)"/$key="$new_val"/i) {
                             log_success("Update $dep_name:$key to $new_val") unless $1 eq $new_val;
@@ -330,6 +279,86 @@ sub main {
 
         $replacement_str;
     }mxseg;
+
+    $file_content = $updated_content;
+    my $remove_redundant_transitives_versioned = {};
+
+    # ------------------------------------------------------------------
+    # AUDIT PASS: GENERATE DEPS TREE & PRUNE UNUSED DEPENDENCIES
+    # ------------------------------------------------------------------
+    if ($audit_deps) {
+        my $clean_content = $file_content;
+        $clean_content =~ s{
+            (<dependency\s+(?:[^"'>]|"[^"]*"|'[^']*')+?)
+            (?:\s*/>|\s*>\s*(?:<exclude\s+[^/>]+/>\s*)*\s*</dependency>)
+        }{$1 />}gsx;
+
+        my $clean_file = "$ivy_file-clean";
+        open(my $clean_fh, ">", $clean_file) or die "Error: could not write clean file '$clean_file': $!";
+        print $clean_fh $clean_content;
+        close $clean_fh;
+
+        # Generate .deps using the updated revisions
+        update_deps_file($clean_file, $deps_file, 1);
+        $remove_redundant_transitives_versioned = generate_transitive_map_from_deps($deps_file);
+
+        my $unused_ref = find_unused_dependencies(
+            $file_content, \%used_deps_to_keep, $update,
+            \@remove_packages, \@packages, $remove_redundant_transitives_versioned,
+            $libdir, $api_provider_map, $add_if_missing
+        );
+        %unused_deps_to_drop = %$unused_ref;
+
+        # Execute unused dependency removals (with en situ child promotion support)
+        for my $dep_name (keys %unused_deps_to_drop) {
+            next if $update->{$dep_name} && $update->{$dep_name}->{keep};
+
+            if (exists $add_if_missing->{$dep_name} && @{$add_if_missing->{$dep_name}}) {
+                # Perform en situ substitution for child transitives
+                my $base_indent = '        ';
+                if ($file_content =~ m{^(\s*)<dependency\b[^>]*?\bname="\Q$dep_name\E"}m) {
+                    $base_indent = $1;
+                }
+
+                my @promoted_tags;
+                for my $child_dep (@{$add_if_missing->{$dep_name}}) {
+                    next if grep {$_ eq $child_dep} @packages;
+
+                    my $c_info = $update->{$child_dep} || {};
+                    my $c_org = $c_info->{org} || 'unknown.org';
+                    my $c_name = $c_info->{name} || $child_dep;
+                    my $c_rev = $c_info->{rev} || 'unknown';
+                    my $c_conf = $c_info->{conf} || 'runtime->default';
+
+                    log_success("  └─ En situ replacement: Substituting '$c_name' ($c_rev) in place of '$dep_name'");
+                    push @promoted_tags, "${base_indent}<dependency org=\"$c_org\" name=\"$c_name\" rev=\"$c_rev\" conf=\"$c_conf\" />\n";
+                    push @packages, $c_name;
+                }
+
+                delete $add_if_missing->{$dep_name};
+                my $replacement_xml = join('', @promoted_tags);
+
+                $file_content =~ s{
+                    ^ [ \t]*
+                    (?: <!-- \s* SNYK-[^>]+? \s* --> \s* \r?\n [ \t]* )?
+                    <dependency \b
+                    (?: [^>"'] | "[^"]*" | '[^']*' )*?
+                    \bname="\Q$dep_name\E"
+                    (?: [^>"'] | "[^"]*" | '[^']*' )*?
+                    (?: /> | >\s*.*?\s*</dependency> )
+                    [ \t]* \r?\n?
+                }{$replacement_xml}gmsx;
+
+                $changes_made++;
+            }
+            else {
+                if (remove_dependency_tag(\$file_content, $dep_name)) {
+                    log_info("Remove unused dependency $dep_name (no active imports in src/)");
+                    $changes_made++;
+                }
+            }
+        }
+    }
 
     # Compute surviving direct dependencies
     my %surviving_deps;
@@ -606,8 +635,20 @@ sub is_dep_used {
     my ($dep_name, $update_ref, $used_deps_ref, $libdir, $api_provider_map) = @_;
     return 0 unless defined $dep_name && defined $used_deps_ref && %$used_deps_ref;
 
+    # Direct match in referenced tokens
     return 1 if exists $used_deps_ref->{$dep_name};
 
+    # 1. Config-Driven Providers (from revision-updates.txt: providers=uri1|uri2|pkg)
+    if ($update_ref && exists $update_ref->{$dep_name} && $update_ref->{$dep_name}->{providers}) {
+        my @providers = split /\|/, $update_ref->{$dep_name}->{providers};
+        for my $provider (@providers) {
+            for my $ref_pkg (keys %$used_deps_ref) {
+                return 1 if $ref_pkg eq $provider || $ref_pkg =~ /^\Q$provider\E\b/i;
+            }
+        }
+    }
+
+    # 2. Hardcoded API Provider Map Fallback
     if (exists $api_provider_map->{$dep_name}) {
         for my $api_pkg (@{$api_provider_map->{$dep_name}}) {
             for my $ref_pkg (keys %$used_deps_ref) {
@@ -620,7 +661,7 @@ sub is_dep_used {
     my $name = ($entry && $entry->{name}) ? $entry->{name} : $dep_name;
     my $org = $entry->{org} if $entry;
 
-    # 1. CHECK INDEXED CLASS DATA (From jar-class-index.txt or lib/ JARs)
+    # 3. CHECK INDEXED CLASS DATA (From jar-class-index.txt or lib/ JARs)
     $libdir ||= (-e 'war/WEB-INF/lib') ? 'war/WEB-INF/lib' : 'lib';
     my @matching_jars = find_jars_for_dependency($dep_name, $update_ref, $libdir);
 
@@ -661,7 +702,7 @@ sub is_dep_used {
         return 0;
     }
 
-    # 2. STRICT FALLBACK PATTERNS (Only if JAR is not in index and not in lib/)
+    # 4. STRICT FALLBACK PATTERNS (Only if JAR is not in index and not in lib/)
     if (defined $org) {
         my $clean_name = $name;
         $clean_name =~ s/^(spring|commons|jakarta|javax|log4j|slf4j|jackson|hibernate|tika)-//i;
@@ -741,6 +782,10 @@ sub find_unused_dependencies {
 
     # PASS 1: Identify all directly used or explicitly kept direct dependencies
     for my $dep_name (keys %all_declared_deps) {
+        if ($remove_packages_ref && grep {$dep_name =~ /$_/} @$remove_packages_ref) {
+            $unused_deps{$dep_name} = 1;
+            next;
+        }
         if ($update_ref && exists $update_ref->{$dep_name} && $update_ref->{$dep_name}->{keep_both} && $update_ref->{$dep_name}->{replace_to} && $all_declared_deps{$update_ref->{$dep_name}->{replace_to}}) {
             $kept_deps{$dep_name} = 1;
             next;
@@ -935,6 +980,11 @@ sub extract_all_referenced_packages {
         return unless defined $raw;
         $raw =~ s#[\r\n\s]+##g;
 
+        # Direct string registration for raw taglib URIs and domain-style tokens
+        if ($raw =~ /^[a-zA-Z0-9_\.\-]+$/ && $raw !~ /\.(xsd|xml|html|jsp|properties|png|jpg|gif|css|js)$/i) {
+            $local_references{$raw} = 1;
+        }
+
         return unless $raw =~ /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_\.]+/;
         return if $raw =~ /^(http|https|ftp|mailto|www|com\.sun|org\.w3c\.dom)/i;
         return if $raw =~ /\.(xsd|xml|html|jsp|properties|png|jpg|gif|css|js)$/i;
@@ -990,10 +1040,10 @@ sub extract_all_referenced_packages {
         find({
             wanted   => sub {
                 my $file = $File::Find::name;
-                return unless -f $file && $file =~ /\.(xml|jsp|jspf|tag|tld)$/i;
+                return unless -f $file && $file =~ /\.(xml|jsp|jspf|tag|tld|inc)$/i;
 
-                # Register implicit Servlet/JSP packages if any web/JSP files exist
-                if ($file =~ /\.(jsp|jspf|tag)$/i) {
+                # Register implicit Servlet/JSP packages if web/JSP resources exist
+                if ($file =~ /\.(jsp|jspf|tag|inc)$/i) {
                     $register_local->('jakarta.servlet');
                     $register_local->('jakarta.servlet.jsp');
                 }
@@ -1011,13 +1061,18 @@ sub extract_all_referenced_packages {
                     }
                     if ($line =~ /%@\s*taglib\s+.*?uri=["']([^"']*)["']/) {
                         my $uri = $1;
+
+                        # Dynamically register the exact URI string declared in JSP
+                        $register_local->($uri);
+
+                        # Extract JSTL standard tags
                         if ($uri =~ m{^(?:jakarta\.tags[\.|/]|http://java\.sun\.com/jsp/jstl/)([-a-zA-Z0-9_]+)}) {
                             $register_local->('jakarta.tags');
                             $register_local->("jakarta.tags.$1");
                         }
-                        elsif ($uri =~ m{owasp}i || $uri =~ m{encoder}i) {
-                            $register_local->('owasp.encoder');
-                            $register_local->('org.owasp.encoder');
+                        # Extract domain/package-like structures from arbitrary URIs (e.g., owasp.encoder.jakarta)
+                        elsif ($uri =~ /([a-zA-Z0-9_\.]+\.[a-zA-Z0-9_]+)/) {
+                            $register_local->($1);
                         }
                     }
                 }
@@ -1803,10 +1858,16 @@ sub load_update_data {
                     $hash->{$old}->{replace_to} = $new;
                     $hash->{$old}->{keep_both} = ($opts{keep_both} // $opts{keep} // 0);
 
-                    # Preserve the legacy dependency name and clear Snyk metadata
-                    $hash->{$old}->{name} = $old;
-                    delete $hash->{$old}->{org} if $hash->{$old}->{keep_both};
-                    delete $hash->{$old}->{snyk} if $hash->{$old}->{keep_both}; # DO NOT attach Snyk ID to legacy lib
+                    if ($hash->{$old}->{keep_both}) {
+                        # Preserve legacy name and clear org/snyk for keep_both
+                        $hash->{$old}->{name} = $old;
+                        delete $hash->{$old}->{org};
+                        delete $hash->{$old}->{snyk};
+                    }
+                    else {
+                        # Full replacement target for standard alias mappings
+                        $hash->{$old}->{name} = $new;
+                    }
                 }
                 else {
                     log_warning("missing key: $new");
