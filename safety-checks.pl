@@ -24,6 +24,7 @@ my $remove_if_exists = {
     "EnvironmentHelper" => "remove",
     "FilterConfig"      => "remove",
 };
+
 my $java_patterns = {
     "org\\.apache\\.commons\\.lang\\."                                                                                                                               => "commons-lang",
     "org\\.apache\\.commons\\.collections\\."                                                                                                                        => "commons-collections",
@@ -74,6 +75,7 @@ my $java_patterns = {
     '^(?:[^/]|/(?!/))*?\bnew\s+((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s*\('                                                                                => 'FQCN construction: $1',
     '(JMSC\.MQJMS_(\w+))'                                                                                                                                            => 'replace $1 with WMQConstants.WMQ_$2',
 };
+
 my $xml_patterns = {
     "org\\.jasig"                                     => "jasig CAS",
     "org\\.apereo\\.cas"                              => "remove apereo CAS",
@@ -86,32 +88,37 @@ my $xml_patterns = {
     "nagios"                                          => "remove nagios from security groups",
     'mgic.entity.revision=\d+'                        => "check mgic.entity.revision",
 };
+
 my $iml_patterns = {
     '"MQ"'                 => 'use tomcat10 library',
     'jdkName="(?!21)(.*)"' => "JDK",
 };
+
 my $jsp_patterns = {
     "javax\\.servlet\\.jsp"                           => "javax JSP API",
     "(http://java.sun.com/jsp|https://www.owasp.org)" => "old taglibs",
     "<enc:forJavaScriptBlockvalue"                    => "enc:forJavaScriptBlockvalue",
     "<form:form.*commandName="                        => "commandName",
 };
-my $js_patterns = {
-    '^(\s*)(.*\.(append|html)\()((?!sanitized)[_\w]+)(\);)\s*$' => 'not sanitized $3',
-};
+
+my $js_patterns = {}; # JS checks handled by analyze_javascript_file()
+
 my $properties_patterns = {
     "content.ts.mgicint.net"         => "static content",
     "(rd|qa).content.mgic.(com|net)" => "static content",
     "ojdbc8.jat"                     => "move ojdbc8 driver to ivy.xml",
 };
+
 my $yaml_patterns = {
     "core.yml"       => "upgrade for java21",
     "BUILD\\.DEPLOY" => "upgrade for java21",
 };
+
 my $sh_patterns = {
     "umask *022" => "update setenv.sh",
     "/jre/"      => "fix cacerts folder",
 };
+
 my $file_patterns = {
     '.gitignore' => {
         '\.idea.*/libraries' => 'fix libraries exclusion',
@@ -183,6 +190,7 @@ safety_check($start_directory, 'yml', $yaml_patterns) if $checks->{yml} || $chec
 safety_check($start_directory, 'sh', $sh_patterns) if $checks->{sh} || $checkAll;
 file_pattern_safety_checks($start_directory, $file_patterns) if $checks->{files} || $checks->{file_patterns} || $checkAll;
 misc_checks($start_directory) if $checks->{misc} || $checkAll;
+
 if ($checkAll) {
     for my $m (@unwanted) {
         if (-e $m) {
@@ -211,23 +219,13 @@ sub safety_check {
     }
 
     log_info("\nRunning Safety Check for *.$file_extension files");
-    if ($verbose) {
-        log_info("  Target files with extension: $file_extension");
-        log_info("  Searching for patterns:");
-        foreach my $p_regex (sort keys %$patterns_ref) {
-            log_info("    - '$p_regex' (Identified as: " . $patterns_ref->{$p_regex} . ")");
-        }
-    }
-    log_info("  Starting directory: $current_dir") if $verbose && $current_dir ne ".";
     log_info("-" x 50);
 
     my $file_count = 0;
 
     my $wanted_sub = sub {
-        # Skip common development/build directories
         if (-d $_) {
             (my $full_path_relative = $File::Find::name) =~ s#\\#/#g;
-
             if (
                 $full_path_relative =~ '.*/.git' ||
                     $full_path_relative =~ '.*/target' ||
@@ -242,17 +240,29 @@ sub safety_check {
                     $full_path_relative =~ '.*/war/META-INF' ||
                     $full_path_relative =~ '.*/war/WEB-INF/classes' ||
                     $full_path_relative =~ '.*/war/WEB-INF/lib' ||
-                    $full_path_relative =~ '.*/.settings' # Eclipse project files
+                    $full_path_relative =~ '.*/war/web/scripts/jquery' ||
+                    $full_path_relative =~ '.*/.settings'
             ) {
-                $File::Find::prune = 1; # Don't traverse into this directory
+                $File::Find::prune = 1;
                 return;
             }
         }
 
-        # only process regular files
         return unless -f $_;
 
-        my $validated = check_single_file($_, $File::Find::name, $lc_target_extension_with_dot, \%compiled_patterns, $patterns_ref);
+        my $file_path = $File::Find::name;
+        my ($filename, $dirs, $suffix) = fileparse($file_path, qr/\.[^.]*$/);
+
+        # Only run JS analysis when safety_check is specifically scanning .js files
+        if (lc($file_extension) eq 'js') {
+            if (lc($suffix) eq '.js') {
+                analyze_javascript_file($_, $file_path);
+                $file_count++;
+            }
+            return;
+        }
+
+        my $validated = check_single_file($_, $file_path, $lc_target_extension_with_dot, \%compiled_patterns, $patterns_ref);
         $file_count++ if $validated;
     };
 
@@ -283,7 +293,6 @@ sub check_single_file {
     my @lines = <$fh>;
     close $fh;
 
-    # 1. Collect explicit imports: e.g. 'Date' => 'java.util.Date'
     my %imports;
     for my $line (@lines) {
         if ($line =~ /^\s*import\s+(?:static\s+)?((?:[a-z][a-zA-Z0-9_]*\.)+([A-Z][a-zA-Z0-9_]*))\s*;\s*$/) {
@@ -291,7 +300,6 @@ sub check_single_file {
         }
     }
 
-    # 2. Validate line-by-line against compiled patterns
     my $line_num = 0;
     my %pattern_found;
     my $patterns_count = scalar keys %$compiled_patterns;
@@ -306,10 +314,8 @@ sub check_single_file {
                 my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
                 my $output_string = $patterns_ref->{$pattern_regex_key};
 
-                # Braces s{}{} allow using '//' defined-or safely inside replacement block
                 $output_string =~ s{\$(\d+)}{$matches[$1 - 1] // ''}ge;
 
-                # 3. Detect conflicts between matched FQCN and imported class
                 my $extra_info = "";
                 if ($output_string =~ /FQCN/ && defined $matches[0] && $matches[0] =~ /^(.*)\.([A-Z][a-zA-Z0-9_]*)$/) {
                     my ($fqcn, $simple_class) = ($matches[0], $2);
@@ -329,12 +335,360 @@ sub check_single_file {
                 else {
                     log_warning("$file_path_display line $line_num: " . $output_string . $extra_info);
                 }
+                last;
             }
         }
         last if $found_count == $patterns_count;
     }
 
     return 1;
+}
+
+sub analyze_javascript_file {
+    my ($file_to_open, $file_path_display) = @_;
+
+    open my $fh, "<", $file_to_open or do {
+        log_warning("Warning: could not open $file_path_display: $!");
+        return;
+    };
+
+    my @lines = <$fh>;
+    close $fh;
+
+    my %sanitized_vars;
+    my %tainted_vars;
+    my %callback_funcs;
+    my %ajax_requests;
+    my $line_num = 0;
+
+    # Pre-pass: detect inline network callbacks and named-function registrations to mark taint origins by origination
+    my $source = join('', @lines);
+
+    # Robustly find $.post/.get/.getJSON occurrences and extract callback function parameters even when args contain parentheses
+    my $slen = length($source);
+    my $pos = 0;
+    while (1) {
+        my $pidx = index($source, '$.', $pos);
+        last if $pidx < 0;
+        # peek method name after '$.'
+        if (substr($source, $pidx, 6) =~ /^\$\.(post|get|getJSON)/) {
+            my ($method) = ($1 // undef);
+            # find first '(' after method
+            my $after = index($source, '(', $pidx);
+            if ($after > $pidx) {
+                # extract balanced parentheses content
+                my $depth = 0;
+                my $in_q = '';
+                my $content = '';
+                for (my $i = $after + 1; $i < $slen; $i++) {
+                    my $c = substr($source, $i, 1);
+                    if ($in_q) {
+                        if ($c eq $in_q && substr($source, $i-1, 1) ne '\\\\') { $in_q = ''; }
+                    } else {
+                        if ($c eq '"' || $c eq "'" || $c eq '`') { $in_q = $c; }
+                        elsif ($c eq '(') { $depth++; }
+                        elsif ($c eq ')') { if ($depth == 0) { last } $depth--; }
+                    }
+                    $content .= $c;
+                }
+                # look for callback function inside content
+                while ($content =~ /function\s*\(\s*([^\)]*)\)/g) {
+                    my $params = $1;
+                    my $prior_src = substr($source, 0, $pidx);
+                    for my $p (split /\s*,\s*/, $params) {
+                        $p =~ s/^\s+|\s+$//g; next unless length $p;
+                        # getJSON -> JSON response -> don't taint
+                        if (defined $method && lc($method) eq 'getjson') { next }
+                        # If there is an earlier variable with same name assigned from .serialize() before this invocation, skip tainting (naming collision)
+                        if ($prior_src =~ /(?:var|let|const)\s+\Q$p\E\s*=\s*[^;]*\.serialize\s*\(/s) { next }
+                        $tainted_vars{$p} = 1;
+                    }
+                }
+            }
+            $pos = $pidx + 2;
+        } else { $pos = $pidx + 2 }
+    }
+
+    # Handle $.ajax calls assigned to a request variable: var req = $.ajax({ ... })
+    while ($source =~ /(?:var|let|const)\s+([a-zA-Z0-9_\$]+)\s*=\s*\$\.ajax\s*\(\s*\{(.*?)\}\s*\)/gs) {
+        my ($reqVar, $obj) = ($1, $2);
+        my $dataType = '';
+        if ($obj =~ /dataType\s*:\s*['"]([^'"]+)['"]/i) {
+            $dataType = lc $1;
+        }
+        $ajax_requests{$reqVar} = ($dataType eq 'json') ? 1 : 0;
+        # If not json, mark inline success handlers as tainted
+        if ($dataType ne 'json') {
+            while ($obj =~ /\b(success|done|then)\s*:\s*function\s*\(\s*([^\)]*)\)/g) {
+                my $params = $2;
+                for my $p (split /\s*,\s*/, $params) {
+                    $p =~ s/^\s+|\s+$//g;
+                    $tainted_vars{$p} = 1 if length $p;
+                }
+            }
+            while ($obj =~ /\b(success|done|then)\s*:\s*([a-zA-Z0-9_\$]+)/g) {
+                $callback_funcs{$2} = 1;
+            }
+        }
+        else {
+            while ($obj =~ /\b(success|done|then)\s*:\s*([a-zA-Z0-9_\$]+)/g) {
+                $callback_funcs{$2} = 1;
+            }
+        }
+    }
+
+    # Inline $.ajax(...) calls without assignment (e.g., $.ajax({...}).done(...))
+    while ($source =~ /\$\.ajax\s*\(\s*\{(.*?)\}\s*\)/gs) {
+        my $obj = $1;
+        my $dataType = '';
+        if ($obj =~ /dataType\s*:\s*['"]([^'"]+)['"]/i) {
+            $dataType = lc $1;
+        }
+        if ($dataType ne 'json') {
+            while ($obj =~ /\b(success|done|then)\s*:\s*function\s*\(\s*([^\)]*)\)/g) {
+                my $params = $2;
+                for my $p (split /\s*,\s*/, $params) {
+                    $p =~ s/^\s+|\s+$//g;
+                    $tainted_vars{$p} = 1 if length $p;
+                }
+            }
+            while ($obj =~ /\b(success|done|then)\s*:\s*([a-zA-Z0-9_\$]+)/g) {
+                $callback_funcs{$2} = 1;
+            }
+        }
+        else {
+            while ($obj =~ /\b(success|done|then)\s*:\s*([a-zA-Z0-9_\$]+)/g) {
+                $callback_funcs{$2} = 1;
+            }
+        }
+    }
+
+    # Detect $.post(..., function(...) { ... }) even with multiple preceding args and scan the callback body for unsafe DOM insertion
+    while ($source =~ /\$\.post\s*\([^\)]*function\s*\(\s*([^\)]*)\)\s*\{(.*?)\}\s*\)/gs) {
+        my ($params, $body) = ($1, $2);
+        my $match_start = $-[0];
+        for my $p (split /\s*,\s*/, $params) {
+            $p =~ s/^\s+|\s+$//g;
+            next unless length $p;
+            # If there is an earlier variable with same name assigned from .serialize() before this $.post, skip tainting (common naming collision)
+            my $prior_src = substr($source, 0, $match_start);
+            if ($prior_src =~ /(?:var|let|const)\s+\Q$p\E\s*=\s*[^;]*\.serialize\s*\(/s) {
+                next;
+            }
+            $tainted_vars{$p} = 1;
+            # If callback body inserts the param into DOM via append/html/prepend, warn with line
+            while ($body =~ /\.(append|html|prepend)\s*\(\s*([^\)]*\b\Q$p\E\b[^\)]*)\)/gs) {
+                my $arg = $2;
+                # skip if the tainted variable is being sanitized with DOMPurify
+                if ($arg =~ /DOMPurify\.sanitize\s*\(/) { next; }
+                # compute approximate line number by counting newlines before the match position
+                my $match_pos = $-[0] + (pos($source) - length($body));
+                my $line_num = () = substr($source,0,$match_pos) =~ /\n/g; $line_num++;
+                my $clean_arg = $arg; $clean_arg =~ s/\s+/ /g;
+                log_warning("$file_path_display line $line_num: unsanitized DOM input (from $.post callback param $p): $clean_arg");
+            }
+        }
+    }
+
+    # Inline $.getJSON(url, function(data){}) and $.get/post with callback
+    # Match $.get/.post/.getJSON with any args before a callback function: e.g. $.post(url, data, function(resp){})
+    while ($source =~ /\$\.((?:getJSON|get|post))\s*\([^)]*?\bfunction\s*\(\s*([^\)]*)\)/gs) {
+        my ($method, $params) = ($1, $2);
+        my $match_start = $-[0];
+        my $prior_src = substr($source, 0, $match_start);
+        for my $p (split /\s*,\s*/, $params) {
+            $p =~ s/^\s+|\s+$//g;
+            next unless length $p;
+            if (lc($method) eq 'getjson') {
+                next; # getJSON -> JSON response, don't taint
+            }
+            # Skip tainting if an earlier variable with same name was assigned from .serialize()
+            if ($prior_src =~ /(?:var|let|const)\s+\Q$p\E\s*=\s*[^;]*\.serialize\s*\(/s) { next; }
+            $tainted_vars{$p} = 1;
+        }
+    }
+
+    # fetch(...).then(function(resp){}) chains
+    while ($source =~ /fetch\s*\([^\)]*\)\s*\.\s*then\s*\(\s*function\s*\(\s*([^\)]*)\)/gs) {
+        my $params = $1;
+        for my $p (split /\s*,\s*/, $params) {
+            $p =~ s/^\s+|\s+$//g;
+            $tainted_vars{$p} = 1 if length $p;
+        }
+    }
+
+    # Handle requestVar.done(function(...)) only if requestVar was a $.ajax call without dataType:'json'
+    while ($source =~ /([a-zA-Z0-9_\$]+)\s*\.\s*done\s*\(\s*function\s*\(\s*([^\)]*)\)/gs) {
+        my ($reqVar, $params) = ($1, $2);
+        if (exists $ajax_requests{$reqVar} && $ajax_requests{$reqVar} == 0) {
+            for my $p (split /\s*,\s*/, $params) {
+                $p =~ s/^\s+|\s+$//g;
+                $tainted_vars{$p} = 1 if length $p;
+            }
+        }
+    }
+
+    # Registrations of named handlers: $(document).ajaxError(handler), .on('ajaxError', handler), jQuery.ajax({ error: handlerName })
+    while ($source =~ /\.(?:ajaxError)\s*\(\s*([a-zA-Z0-9_\$]+)/gs) {
+        $callback_funcs{$1} = 1;
+    }
+    while ($source =~ /\.on\s*\(\s*['"]ajaxError['"]\s*,\s*([a-zA-Z0-9_\$]+)/gs) {
+        $callback_funcs{$1} = 1;
+    }
+    while ($source =~ /\$\.ajax\s*\(\s*\{(.*?)\}\s*\)/gs) {
+        my $obj = $1;
+        while ($obj =~ /\berror\s*:\s*([a-zA-Z0-9_\$]+)/g) {
+            $callback_funcs{$1} = 1;
+        }
+    }
+
+    # If a named callback function was registered, find its definition and mark its params tainted
+    while ($source =~ /function\s+([a-zA-Z0-9_\$]+)\s*\(\s*([^\)]*)\)/gs) {
+        my ($fname, $params) = ($1, $2);
+        if ($callback_funcs{$fname}) {
+            for my $p (split /\s*,\s*/, $params) {
+                $p =~ s/^\s+|\s+$//g;
+                $tainted_vars{$p} = 1 if length $p;
+            }
+        }
+    }
+
+    # Additional heuristic: scan entire file for insertions that reference any tainted param identifier
+    for my $t (keys %tainted_vars) {
+        while ($source =~ /\.(?:append|html|prepend)\s*\(\s*([^\)]*\b\Q$t\E\b[^\)]*)\)/gs) {
+            my $arg = $1;
+            # skip if the tainted variable is being sanitized with DOMPurify in the insertion
+            if ($arg =~ /DOMPurify\.sanitize\s*\(/) { next; }
+            my $match_pos = $-[0];
+            my $line_num = () = substr($source,0,$match_pos) =~ /\n/g; $line_num++;
+            my $clean_arg = $arg; $clean_arg =~ s/\s+/ /g;
+            log_warning("$file_path_display line $line_num: unsanitized DOM input (from $t): $clean_arg");
+        }
+    }
+
+    # Also propagate taint through simple assignments: var x = taintedVar; x = taintedVar; const/let/var
+    # We'll do this later while scanning lines to capture order-based propagation
+
+    for my $line (@lines) {
+        $line_num++;
+
+        # Track variables assigned via DOMPurify.sanitize(...)
+        while ($line =~ /(?:var|let|const|\s|^)\s*([a-zA-Z0-9_\$]+)\s*=\s*DOMPurify\.sanitize\b/g) {
+            $sanitized_vars{$1} = $line_num;
+        }
+
+        # Propagate taint through simple assignments encountered in order
+        while ($line =~ /(?:var|let|const)\s+([a-zA-Z0-9_\$]+)\s*=\s*([^;]+)/g) {
+            my ($lhs, $rhs) = ($1, $2);
+            for my $t (keys %tainted_vars) {
+                if ($rhs =~ /\b\Q$t\E\b/) {
+                    $tainted_vars{$lhs} = $line_num;
+                    last;
+                }
+            }
+        }
+        while ($line =~ /([a-zA-Z0-9_\$]+)\s*=\s*([^;]+)/g) {
+            my ($lhs, $rhs) = ($1, $2);
+            for my $t (keys %tainted_vars) {
+                if ($rhs =~ /\b\Q$t\E\b/) {
+                    $tainted_vars{$lhs} = $line_num;
+                    last;
+                }
+            }
+        }
+
+        while ($line =~ /\.(append|html|prepend)\s*\(/g) {
+            my $start_pos = pos($line);
+            my $depth = 1;
+            my $pos = $start_pos;
+            my $len = length($line);
+            my $in_quote = '';
+            my $arg = '';
+
+            while ($pos < $len && $depth > 0) {
+                my $char = substr($line, $pos, 1);
+
+                if ($in_quote) {
+                    if ($char eq $in_quote && substr($line, $pos - 1, 1) ne '\\') {
+                        $in_quote = '';
+                    }
+                }
+                else {
+                    if ($char eq '"' || $char eq "'" || $char eq "`") {
+                        $in_quote = $char;
+                    }
+                    elsif ($char eq '(') {
+                        $depth++;
+                    }
+                    elsif ($char eq ')') {
+                        $depth--;
+                    }
+                }
+
+                if ($depth > 0) {
+                    $arg .= $char;
+                }
+                $pos++;
+            }
+
+            $arg =~ s/^\s+|\s+$//g;
+            next unless length $arg;
+
+            # Skip if argument is a single static string literal (single/double/backtick)
+            if ($arg =~ /^\s*(['"`]).*\1\s*$/s) {
+                next;
+            }
+
+            # Rule A: Inline DOMPurify call
+            next if $arg =~ /DOMPurify\.sanitize/;
+
+            # Rule B: Parameter is a variable sanitized earlier in this file
+            if ($arg =~ /^([a-zA-Z0-9_\$]+)$/) {
+                my $var_name = $1;
+                next if exists $sanitized_vars{$var_name};
+            }
+
+            # Rule C: jQuery-created DOM nodes (e.g. $('<input>').attr(...)) or document.createElement(...)
+            # These create elements and set attributes rather than injecting HTML strings, so consider them non-tainted
+            if ($arg =~ /\$\s*\(\s*['"]\s*<\s*\w+/s || $arg =~ /document\.createElement\s*\(/) {
+                next;
+            }
+
+            # Rule D: jQuery .val() results or direct element.value access are considered non-tainted by SNYK
+            # e.g., $(this).val() or document.getElementById(...).value
+            if ($arg =~ /\$\([^)]*\)\s*\.\s*val\s*\(/s || $arg =~ /\b\.value\b/) {
+                next;
+            }
+
+            # Rule F: Only warn when the argument contains a tainted identifier (data from service calls)
+            my $is_tainted = 0;
+            for my $t (keys %tainted_vars) {
+                if ($arg =~ /\b\Q$t\E\b/) {
+                    $is_tainted = 1;
+                    last;
+                }
+            }
+
+            # Rule E: Concatenation of string literal(s) and identifiers (e.g. 'text' + var) — treat as non-tainted (matches SNYK heuristics)
+            # Only apply this safe-concatenation heuristic when no tainted identifier is present
+            if (!$is_tainted && $arg =~ /(['"`]).*?\1/s) {
+                my $rest = $arg;
+                $rest =~ s/(['"`]).*?\1//gs; # remove string literals
+                $rest =~ s/\s+//g;           # remove whitespace
+                $rest =~ s/\+//g;            # remove concatenation operators
+                # if remaining chars are only identifiers, dots, brackets or dollar signs, consider safe
+                if ($rest =~ /^[a-zA-Z0-9_\$\.\[\]]*$/) {
+                    next;
+                }
+            }
+
+            next unless $is_tainted;
+
+            my $clean_arg = $arg;
+            $clean_arg =~ s/\s+/ /g;
+            log_warning("$file_path_display line $line_num: unsanitized DOM input: $clean_arg");
+        }
+    }
 }
 
 sub file_pattern_safety_checks {
@@ -375,17 +729,13 @@ sub file_pattern_safety_checks {
     }
 
     log_info("\n---Running Safety Check for Wildcard File Patterns ---");
-    log_info("  Target wildcards: " . join(", ", sort keys %$file_patterns_ref));
-    log_info("  Starting directory: " . $current_dir);
     log_info("-" x 50);
 
     my $file_count = 0;
 
     my $wanted_sub = sub {
-        # Skip common development/build directories
         if (-d $_) {
             (my $full_path_relative = $File::Find::name) =~ s#\\#/#g;
-
             if (
                 $full_path_relative =~ '.*/.git' ||
                     $full_path_relative =~ '.*/target' ||
@@ -400,14 +750,13 @@ sub file_pattern_safety_checks {
                     $full_path_relative =~ '.*/war/META-INF' ||
                     $full_path_relative =~ '.*/war/WEB-INF/classes' ||
                     $full_path_relative =~ '.*/war/WEB-INF/lib' ||
-                    $full_path_relative =~ '.*/.settings' # Eclipse project files
+                    $full_path_relative =~ '.*/.settings'
             ) {
-                $File::Find::prune = 1; # Don't traverse into this directory
+                $File::Find::prune = 1;
                 return;
             }
         }
 
-        # only process regular files
         return unless -f $_;
 
         my $filename_to_match = $_;
@@ -468,14 +817,13 @@ sub check_unused_tagdefs {
     my %declared_prefixes;
     my %used_prefixes;
 
-    # 1. Locate tagdefs.jsp and parse declared taglibs
     find(sub {
         return unless -f $_ && $_ eq 'tagdefs.jsp';
         $tagdefs_path = $File::Find::name;
     }, $current_dir);
 
     unless ($tagdefs_path && -f $tagdefs_path) {
-        return; # Silent skip if project doesn't utilize a tagdefs.jsp
+        return;
     }
 
     open my $fh, "<", $tagdefs_path or return;
@@ -490,7 +838,6 @@ sub check_unused_tagdefs {
 
     return unless %declared_prefixes;
 
-    # 2. Scan all JSP/JSPF/TAG files to record prefix occurrences
     find(sub {
         if (-d $_) {
             my $full_path = $File::Find::name;
@@ -501,7 +848,7 @@ sub check_unused_tagdefs {
         }
 
         return unless -f $_ && $_ =~ /\.(jsp|jspf|tag)$/i;
-        return if $File::Find::name eq $tagdefs_path; # Ignore self
+        return if $File::Find::name eq $tagdefs_path;
 
         open my $jsp_fh, "<", $_ or return;
         while (my $line = <$jsp_fh>) {
@@ -516,7 +863,6 @@ sub check_unused_tagdefs {
         close $jsp_fh;
     }, $current_dir);
 
-    # 3. Output warnings for any unused declared taglibs
     log_info("\nChecking tagdefs.jsp for Unused Taglib Declarations");
     log_info("-" x 50);
 
@@ -545,7 +891,6 @@ sub validate_attributes {
     my ($tag_name, $attrs, $line_num) = @_;
     return undef unless defined $attrs && $attrs =~ /\S/;
 
-    # Validate attribute quote closure
     while ($attrs =~ m{([a-zA-Z0-9_\-\.\:]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))}g) {
         my ($attr_name, $val_dbl, $val_sgl, $unquoted) = ($1, $2, $3, $4);
         if (defined $unquoted) {
@@ -558,20 +903,17 @@ sub validate_attributes {
 sub validate_xml_content_pure_perl {
     my ($content) = @_;
 
-    # 1. Pre-process: Preserve newlines while blanking out non-XML text blocks
-    $content =~ s/(<%--.*?--%>)/blank_keep_newlines($1)/gse;   # JSP comments
-    $content =~ s/(<%[@=!]?.*?%>)/blank_keep_newlines($1)/gse; # JSP directives and scriptlets
-    $content =~ s/(\$\{[^}]*\})/blank_keep_newlines($1)/gse;   # JSP EL expressions (${...})
-    $content =~ s/(<!--.*?-->)/blank_keep_newlines($1)/gse;    # XML comments
+    $content =~ s/(<%--.*?--%>)/blank_keep_newlines($1)/gse;
+    $content =~ s/(<%[@=!]?.*?%>)/blank_keep_newlines($1)/gse;
+    $content =~ s/(\$\{[^}]*\})/blank_keep_newlines($1)/gse;
+    $content =~ s/(<!--.*?-->)/blank_keep_newlines($1)/gse;
     $content =~ s/(<!\[CDATA\[.*?\]\]>)/blank_keep_newlines($1)/gse;
     $content =~ s/(<\?.*?\?>)/blank_keep_newlines($1)/gse;
     $content =~ s/(<!DOCTYPE.*?>)/blank_keep_newlines($1)/gse;
 
-    # FIX: Blank out inner content of <script> and <style> tags to ignore JS/CSS ampersands (&&, &)
     $content =~ s{(<script\b[^>]*>)(.*?)(</script>)}{$1 . blank_keep_newlines($2) . $3}gse;
     $content =~ s{(<style\b[^>]*>)(.*?)(</style>)}{$1 . blank_keep_newlines($2) . $3}gse;
 
-    # Blank out custom JSP/JSTL taglib tags (e.g., <c:if ...>, </c:if>, <fmt:...>, <mux:...>)
     my $taglib_regex = qr{
         </?
         [a-zA-Z0-9_\-\.]+:[a-zA-Z0-9_\-\.]+
@@ -580,10 +922,9 @@ sub validate_xml_content_pure_perl {
     }xms;
     $content =~ s/($taglib_regex)/blank_keep_newlines($1)/gse;
 
-    my @tag_stack; # Stores tuples: [ $tag_name, $line_num ]
+    my @tag_stack;
     my $root_element_count = 0;
 
-    # Tag regex: Matches < ... > while allowing < and > inside single or double quotes
     my $tag_regex = qr{
         <
         (?:
@@ -596,7 +937,6 @@ sub validate_xml_content_pure_perl {
         >
     }xms;
 
-    # 2. Tokenize by tags (respecting quoted < and >), stray '<', or text content
     while ($content =~ m{($tag_regex|[^<]+|<)}gs) {
         my $chunk = $1;
         my $chunk_pos = pos($content) - length($chunk);
@@ -606,7 +946,6 @@ sub validate_xml_content_pure_perl {
             return "Line $line_num: Malformed XML: Unclosed or orphaned '<' found";
         }
         elsif ($chunk =~ /^</) {
-            # Closing tag: </foo>
             if ($chunk =~ /^<\/\s*([a-zA-Z0-9_\-\.\:]+)\s*>$/s) {
                 my $close_tag = $1;
                 unless (@tag_stack) {
@@ -620,13 +959,11 @@ sub validate_xml_content_pure_perl {
                 next;
             }
 
-            # Opening or self-closing tag
             if ($chunk =~ /^<\s*([a-zA-Z0-9_\-\.\:]+)([\s\S]*)?>$/s) {
                 my $open_tag = $1;
                 my $raw_body = $2 // '';
                 my $lc_tag = lc($open_tag);
 
-                # Determine if self-closing or an HTML void element (e.g. <link>, <img>, <meta>)
                 my $is_self_closing = ($chunk =~ /\/>$/s) || $HTML_VOID_TAGS{$lc_tag};
 
                 my $attrs = $raw_body;
@@ -646,7 +983,6 @@ sub validate_xml_content_pure_perl {
             }
         }
         else {
-            # Text content: Verify entity escaping
             if ($chunk =~ /&(?!([a-zA-Z][a-zA-Z0-9]*|#\d+|#x[0-9a-fA-F]+);)/) {
                 my $entity_offset = $-[0];
                 my $exact_line = $line_num + (substr($chunk, 0, $entity_offset) =~ tr/\n//);
@@ -660,7 +996,7 @@ sub validate_xml_content_pure_perl {
         return "Unclosed tag(s) remaining: " . join(", ", @unclosed_msgs);
     }
 
-    return undef; # Success
+    return undef;
 }
 
 sub check_xml_well_formedness {
