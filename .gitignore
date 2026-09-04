@@ -1,2 +1,9 @@
 # rebuilt if missing
 jar-class-index.txt
+
+# backup files
+*.swp
+jar-class-index.txt.bak.*
+
+# copied in as needed for AI to run tests
+examples
