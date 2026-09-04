@@ -11,6 +11,8 @@ mgic-entity-master.jar                  ../mgic_entity/src
 address-standardize-client.jar          ../business_party_service_10427/src/com/mgic/service/address ../business_party_service_10427/src/com/mgic/service/address/model ../business_party_service_10427/src/com/mgic/service/address/exception ../business_party_service_10427/src/com/mgic/service/address/security ../business_party_service_10427/src/com/mgic/service/address/standardize
 aimservice-client.jar                   ../alternate_id_matching_service_10436/src/com/mgic/service/aims ../alternate_id_matching_service_10436/src/com/mgic/aimservice/bean
 claims-commons.jar                      ../claims_commons/src
+domain-definition-get-client.jar        ../domain_definition_service_10430/src/com/mgic/service/domaindefinition/get
+domain-definition-translate-client.jar  ../domain_definition_service_10430/src/com/mgic/service/domaindefinition/translate
 esb-common.jar                          ../esb_common/src
 esb-service.jar                         ../esb_common/src
 mgic-atlas-codeset.jar                  ../atlas_7002/src/com/mgic/codeset
