@@ -30,17 +30,13 @@ my $java_patterns = {
     "org\\.apache\\.commons\\.collections\\."                                                                                                                        => "commons-collections",
     "com\\.ibm\\.mq\\.jms"                                                                                                                                           => "IBM MQ JMS",
     "WebMvcConfigurerAdapter"                                                                                                                                        => "WebMvcConfigurerAdapter",
-    "MappingJacksonJsonView *get"                                                                                                                                    => "MappingJacksonJsonView",
     'import *javax\.(?!cache|crypto|mail|management|naming|net|sql|xml\.(?>XMLConstants|catalog|datatype|namespace|parsers|stream|transform|validation|xpath))(\w+)' => 'javax.$1',
-    "RequestMappingHandlerAdapter *request"                                                                                                                          => "rename to createRequestMappingHandlerAdapter",
     "HandlerInterceptorAdapter"                                                                                                                                      => "HandlerInterceptorAdapter",
     "org.apache.http.client"                                                                                                                                         => "httpcomponents",
     "org.apache.commons.httpclient"                                                                                                                                  => "httpcomponents",
     "DefaultHttpRequestRetryStrategy"                                                                                                                                => "retry strategies",
     "getPatternsCondition"                                                                                                                                           => "test-harness",
-    "swagger"                                                                                                                                                        => "swagger",
-    "\@Api"                                                                                                                                                          => "swagger",
-    "springfox"                                                                                                                                                      => "springfox",
+    "springfox"                                                                                                                                                      => "upgrade springfox to springdoc",
     "(MQ_QMGRNAME|MgicQueueConnectionFactory.setCluster)"                                                                                                            => "MQCLUSTER",
     "(?<!Service)\\.findOne\\(\\w+\\)"                                                                                                                               => "refactor to use findById()",
     "org\\.\\apereo\\."                                                                                                                                              => "remove Apereo CAS",
@@ -60,26 +56,38 @@ my $java_patterns = {
     'import +org.apache.log4j.Logger'                                                                                                                                => 'remove old log4j',
     'import +org.apache.commons.logging'                                                                                                                             => 'remove commons-logging',
     'new (Integer|Short|Long|Byte)[^\w]'                                                                                                                             => 'fix $1 boxing',
-    '\.(setRemovedAbandoned)\('                                                                                                                                      => 'replace $1 with setRemoveAbandonedOnMaintenance',
-    '\.(setTimeBetweenEvictionRunsMillis)\('                                                                                                                         => 'replace $1 with setDurationBetweenEvictionRuns',
-    '\.(setRemoveAbandonedTimeout)\((\d+)'                                                                                                                           => 'replace $1($2) with $1(Duration)',
-    '\.(setMaxWait)\((\d+)'                                                                                                                                          => 'replace $1($) with $1(Duration)',
     '@EnableMBeanExport'                                                                                                                                             => 'remove @EnableMBeanExport',
     '(CommonsMultipartResolver)'                                                                                                                                     => 'replace $1 with StandardServletMultipartResolver',
     '(\w*JdbcTemplate)'                                                                                                                                              => '$1',
-    'BigDecimal.*getResult'                                                                                                                                          => 'query returns BigDecimal',
     'filter\.PageFilter'                                                                                                                                             => 'replace PageFilter with SiteMeshFilter',
     'com\.mgic\.business\.aims\.'                                                                                                                                    => 'use aimservice-client.jar',
     'org\.hibernate\.annotations\.Named'                                                                                                                             => 'use JPA NamedNativeQuery',
-    '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s+\w+(?:\s*[=;,])'                => 'FQCN member declaration: $1',
-    '^(?:[^/]|/(?!/))*?\bnew\s+((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s*\('                                                                                => 'FQCN construction: $1',
     '(JMSC\.MQJMS_(\w+))'                                                                                                                                            => 'replace $1 with WMQConstants.WMQ_$2',
+};
+
+my $java_multiline_patterns = {
+    # Potential CVE vulnerabilities
+    '@(?:NativeQuery|Query\s*\(\s*value[^,]+,\s*nativeQuery\s*=\s*true\s*\)|Query\s*\(\s*nativeQuery\s*=\s*true\s*\))[^;]*?(?:Pageable|Sort)\s+\w+'   => 'Potential SQL Injection vulnerability (SNYK-JAVA-ORGSPRINGFRAMEWORKDATA-19267482)',
+
+    # Return types and parameters
+    'BigDecimal.*?getResult'                                                                                                                          => 'query returns BigDecimal',
+    'MappingJacksonJsonView\s+get'                                                                                                                    => 'MappingJacksonJsonView',
+    'RequestMappingHandlerAdapter\s+request'                                                                                                          => 'rename to createRequestMappingHandlerAdapter',
+
+    # Chained methods (DBCP2 / Commons Pool upgrades)
+    '\s*\.\s*(setRemovedAbandoned)\s*\('                                                                                                              => 'replace $1 with setRemoveAbandonedOnMaintenance',
+    '\s*\.\s*(setTimeBetweenEvictionRunsMillis)\s*\('                                                                                                 => 'replace $1 with setDurationBetweenEvictionRuns',
+    '\s*\.\s*(setRemoveAbandonedTimeout)\s*\(\s*(\d+)'                                                                                                => 'replace $1($2) with $1(Duration)',
+    '\s*\.\s*(setMaxWait)\s*\(\s*(\d+)'                                                                                                               => 'replace $1($) with $1(Duration)',
+
+    # FQCN Declarations
+    '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s+\w+(?:\s*[=;,])' => 'FQCN member declaration: $1',
+    '^(?:[^/]|/(?!/))*?\bnew\s+((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s*\('                                                                 => 'FQCN construction: $1',
 };
 
 my $xml_patterns = {
     "org\\.jasig"                                     => "jasig CAS",
     "org\\.apereo\\.cas"                              => "remove apereo CAS",
-    "<buildFile[^>]* />"                              => "missing add-opens",
     "<bean"                                           => "move beans to java config",
     "JDK_(?!21)"                                      => "JDK",
     "http://java.sun.com/xml/ns/javaee"               => "upgrade to jakarta 6.0",
@@ -89,16 +97,23 @@ my $xml_patterns = {
     'mgic.entity.revision=\d+'                        => "check mgic.entity.revision",
 };
 
+my $xml_multiline_patterns = {
+    '<buildFile[^>]*/>' => 'missing add-opens',
+};
+
 my $iml_patterns = {
-    '"MQ"'                 => 'use tomcat10 library',
-    'jdkName="(?!21)(.*)"' => "JDK",
+    '"MQ"'                       => 'use tomcat10 library',
+    'jdkName="(?!(jdk)?21)(.*)"' => "JDK",
 };
 
 my $jsp_patterns = {
     "javax\\.servlet\\.jsp"                           => "javax JSP API",
     "(http://java.sun.com/jsp|https://www.owasp.org)" => "old taglibs",
     "<enc:forJavaScriptBlockvalue"                    => "enc:forJavaScriptBlockvalue",
-    "<form:form.*commandName="                        => "commandName",
+};
+
+my $jsp_multiline_patterns = {
+    '<form:form.*?commandName=' => 'commandName',
 };
 
 my $js_patterns = {}; # JS checks handled by analyze_javascript_file()
@@ -173,16 +188,16 @@ if (!defined $abs_start_directory_resolved) {
 log_info("DEBUG (Top-Level): File::Find will start from absolute path: '$abs_start_directory_resolved'", MAGENTA);
 
 log_success("--- Starting All Safety Checks ---");
-safety_check($start_directory, 'java', $java_patterns) if $checks->{java} || $checkAll;
+safety_check($start_directory, 'java', $java_patterns, $java_multiline_patterns) if $checks->{java} || $checkAll;
 if ($checks->{jsp} || $checkAll) {
-    safety_check($start_directory, 'jsp', $jsp_patterns);
+    safety_check($start_directory, 'jsp', $jsp_patterns, $jsp_multiline_patterns);
     check_unused_tagdefs($start_directory);
     check_xml_well_formedness($start_directory, [ 'jsp', 'jspf', 'htm', 'html', 'tld', 'tag' ]);
 }
 safety_check($start_directory, 'js', $js_patterns) if $checks->{js} || $checkAll;
 safety_check($start_directory, 'properties', $properties_patterns) if $checks->{properties} || $checkAll;
 if ($checks->{xml} || $checkAll) {
-    safety_check($start_directory, 'xml', $xml_patterns);
+    safety_check($start_directory, 'xml', $xml_patterns, $xml_multiline_patterns);
     check_xml_well_formedness($start_directory, 'xml');
 }
 safety_check($start_directory, 'iml', $iml_patterns) if $checks->{iml} || $checkAll;
@@ -203,18 +218,28 @@ log_success("--- All Safety Checks Complete ---");
 exit 0;
 
 sub safety_check {
-    my ($current_dir, $file_extension, $patterns_ref) = @_;
+    my ($current_dir, $file_extension, $patterns_ref, $multiline_patterns_ref) = @_;
 
     my $lc_target_extension_with_dot = "." . lc $file_extension;
 
     my %compiled_patterns;
     foreach my $p (keys %$patterns_ref) {
-        eval {
-            $compiled_patterns{$p} = qr/$p/;
-        };
+        eval {$compiled_patterns{$p} = qr/$p/;};
         if ($@) {
             log_error("Error: Invalid regular expression pattern '$p': $@");
             exit 1;
+        }
+    }
+
+    # Compile Multiline Patterns if provided
+    my %compiled_multiline_patterns;
+    if (defined $multiline_patterns_ref) {
+        foreach my $p (keys %$multiline_patterns_ref) {
+            eval {$compiled_multiline_patterns{$p} = qr/$p/sm;};
+            if ($@) {
+                log_error("Error: Invalid multiline pattern '$p': $@");
+                exit 1;
+            }
         }
     }
 
@@ -262,7 +287,7 @@ sub safety_check {
             return;
         }
 
-        my $validated = check_single_file($_, $file_path, $lc_target_extension_with_dot, \%compiled_patterns, $patterns_ref);
+        my $validated = check_single_file($_, $file_path, $lc_target_extension_with_dot, \%compiled_patterns, $patterns_ref, \%compiled_multiline_patterns, $java_multiline_patterns);
         $file_count++ if $validated;
     };
 
@@ -272,7 +297,7 @@ sub safety_check {
 }
 
 sub check_single_file {
-    my ($file_to_open, $file_path_display, $lc_target_extension_with_dot, $compiled_patterns, $patterns_ref) = @_;
+    my ($file_to_open, $file_path_display, $lc_target_extension_with_dot, $compiled_patterns, $patterns_ref, $compiled_multiline_patterns, $multiline_patterns_ref) = @_;
 
     my ($filename, $dirs, $suffix) = fileparse($file_path_display, qr/\.[^.]*$/);
 
@@ -292,6 +317,32 @@ sub check_single_file {
 
     my @lines = <$fh>;
     close $fh;
+
+    if (defined $compiled_multiline_patterns && keys %$compiled_multiline_patterns > 0) {
+        my $full_text = join("", @lines);
+
+        for my $pattern_regex_key (keys %$compiled_multiline_patterns) {
+            while ($full_text =~ /$compiled_multiline_patterns->{$pattern_regex_key}/g) {
+                my @matches = ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+                my $match_pos = $-[0];
+                my $exact_line = () = substr($full_text, 0, $match_pos) =~ /\n/g;
+                $exact_line++;
+
+                my $output_string = $multiline_patterns_ref->{$pattern_regex_key};
+                $output_string =~ s{\$(\d+)}{$matches[$1 - 1] // ''}ge;
+
+                if (defined $lc_target_extension_with_dot && $lc_target_extension_with_dot eq ".java") {
+                    (my $fpd = $file_path_display) =~ s#^./(src|test)/##;
+                    $fpd =~ s#/#.#g;
+                    $fpd =~ s/$lc_target_extension_with_dot//;
+                    log_warning("$fpd.($filename:$exact_line) - " . $output_string);
+                }
+                else {
+                    log_warning("$file_path_display line $exact_line: " . $output_string);
+                }
+            }
+        }
+    }
 
     my %imports;
     for my $line (@lines) {
@@ -383,11 +434,15 @@ sub analyze_javascript_file {
                 for (my $i = $after + 1; $i < $slen; $i++) {
                     my $c = substr($source, $i, 1);
                     if ($in_q) {
-                        if ($c eq $in_q && substr($source, $i-1, 1) ne '\\\\') { $in_q = ''; }
-                    } else {
-                        if ($c eq '"' || $c eq "'" || $c eq '`') { $in_q = $c; }
-                        elsif ($c eq '(') { $depth++; }
-                        elsif ($c eq ')') { if ($depth == 0) { last } $depth--; }
+                        if ($c eq $in_q && substr($source, $i - 1, 1) ne '\\\\') {$in_q = '';}
+                    }
+                    else {
+                        if ($c eq '"' || $c eq "'" || $c eq '`') {$in_q = $c;}
+                        elsif ($c eq '(') {$depth++;}
+                        elsif ($c eq ')') {
+                            if ($depth == 0) {last}
+                            $depth--;
+                        }
                     }
                     $content .= $c;
                 }
@@ -396,17 +451,19 @@ sub analyze_javascript_file {
                     my $params = $1;
                     my $prior_src = substr($source, 0, $pidx);
                     for my $p (split /\s*,\s*/, $params) {
-                        $p =~ s/^\s+|\s+$//g; next unless length $p;
+                        $p =~ s/^\s+|\s+$//g;
+                        next unless length $p;
                         # getJSON -> JSON response -> don't taint
-                        if (defined $method && lc($method) eq 'getjson') { next }
+                        if (defined $method && lc($method) eq 'getjson') {next}
                         # If there is an earlier variable with same name assigned from .serialize() before this invocation, skip tainting (naming collision)
-                        if ($prior_src =~ /(?:var|let|const)\s+\Q$p\E\s*=\s*[^;]*\.serialize\s*\(/s) { next }
+                        if ($prior_src =~ /(?:var|let|const)\s+\Q$p\E\s*=\s*[^;]*\.serialize\s*\(/s) {next}
                         $tainted_vars{$p} = 1;
                     }
                 }
             }
             $pos = $pidx + 2;
-        } else { $pos = $pidx + 2 }
+        }
+        else {$pos = $pidx + 2}
     }
 
     # Handle $.ajax calls assigned to a request variable: var req = $.ajax({ ... })
@@ -479,12 +536,14 @@ sub analyze_javascript_file {
             # If callback body inserts the param into DOM via append/html/prepend, warn with line
             while ($body =~ /\.(append|html|prepend)\s*\(\s*([^\)]*\b\Q$p\E\b[^\)]*)\)/gs) {
                 my $arg = $2;
-                # skip if the tainted variable is being sanitized with DOMPurify
-                if ($arg =~ /DOMPurify\.sanitize\s*\(/) { next; }
+                # skip if the tainted variable is being sanitized (DOMPurify, escapeUtils.escapeHtml, or escapeHtml(...))
+                if ($arg =~ /(?:DOMPurify\.sanitize|escapeUtils\.escapeHtml|\bescapeHtml\s*)\s*\(/) {next;}
                 # compute approximate line number by counting newlines before the match position
                 my $match_pos = $-[0] + (pos($source) - length($body));
-                my $line_num = () = substr($source,0,$match_pos) =~ /\n/g; $line_num++;
-                my $clean_arg = $arg; $clean_arg =~ s/\s+/ /g;
+                my $line_num = () = substr($source, 0, $match_pos) =~ /\n/g;
+                $line_num++;
+                my $clean_arg = $arg;
+                $clean_arg =~ s/\s+/ /g;
                 log_warning("$file_path_display line $line_num: unsanitized DOM input (from $.post callback param $p): $clean_arg");
             }
         }
@@ -503,7 +562,7 @@ sub analyze_javascript_file {
                 next; # getJSON -> JSON response, don't taint
             }
             # Skip tainting if an earlier variable with same name was assigned from .serialize()
-            if ($prior_src =~ /(?:var|let|const)\s+\Q$p\E\s*=\s*[^;]*\.serialize\s*\(/s) { next; }
+            if ($prior_src =~ /(?:var|let|const)\s+\Q$p\E\s*=\s*[^;]*\.serialize\s*\(/s) {next;}
             $tainted_vars{$p} = 1;
         }
     }
@@ -557,11 +616,13 @@ sub analyze_javascript_file {
     for my $t (keys %tainted_vars) {
         while ($source =~ /\.(?:append|html|prepend)\s*\(\s*([^\)]*\b\Q$t\E\b[^\)]*)\)/gs) {
             my $arg = $1;
-            # skip if the tainted variable is being sanitized with DOMPurify in the insertion
-            if ($arg =~ /DOMPurify\.sanitize\s*\(/) { next; }
+            # skip if the tainted variable is being sanitized (DOMPurify, escapeUtils.escapeHtml, or escapeHtml(...)) in the insertion
+            if ($arg =~ /(?:DOMPurify\.sanitize|escapeUtils\.escapeHtml|\bescapeHtml\s*)\s*\(/) {next;}
             my $match_pos = $-[0];
-            my $line_num = () = substr($source,0,$match_pos) =~ /\n/g; $line_num++;
-            my $clean_arg = $arg; $clean_arg =~ s/\s+/ /g;
+            my $line_num = () = substr($source, 0, $match_pos) =~ /\n/g;
+            $line_num++;
+            my $clean_arg = $arg;
+            $clean_arg =~ s/\s+/ /g;
             log_warning("$file_path_display line $line_num: unsanitized DOM input (from $t): $clean_arg");
         }
     }
@@ -639,8 +700,8 @@ sub analyze_javascript_file {
                 next;
             }
 
-            # Rule A: Inline DOMPurify call
-            next if $arg =~ /DOMPurify\.sanitize/;
+            # Rule A: Inline sanitizer calls (DOMPurify, escapeUtils.escapeHtml, or escapeHtml(...))
+            next if $arg =~ /(?:DOMPurify\.sanitize|escapeUtils\.escapeHtml|\bescapeHtml\s*\()/;
 
             # Rule B: Parameter is a variable sanitized earlier in this file
             if ($arg =~ /^([a-zA-Z0-9_\$]+)$/) {
