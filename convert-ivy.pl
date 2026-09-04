@@ -200,13 +200,33 @@ sub main {
             push @packages, $dep_name;
 
             my $modified_dependency_block = $dependency_block;
+
+            # Capture existing excludes before wiping inner block
+            while ($modified_dependency_block =~ /<exclude\s+([^>]+)\/>/g) {
+                my $attrs = $1;
+                my $ex_org = $1 if $attrs =~ /\borg="([^"]+)"/;
+                my $ex_name = $1 if $attrs =~ /\b(?:name|module)="([^"]+)"/;
+
+                if (defined $ex_org || defined $ex_name) {
+                    $exclusions->{$dep_name} ||= [];
+                    my $already_queued = 0;
+                    for my $existing (@{$exclusions->{$dep_name}}) {
+                        if (($existing->{org} // '') eq ($ex_org // '') && ($existing->{name} // '') eq ($ex_name // '')) {
+                            $already_queued = 1;
+                            last;
+                        }
+                    }
+                    unless ($already_queued) {
+                        push @{$exclusions->{$dep_name}}, { org => $ex_org, name => $ex_name };
+                    }
+                }
+            }
+
             $modified_dependency_block =~ s{\s*<exclude\s+[^/>]+/>}{}g;
-            # Collapse to self-closing only if the dependency has no remaining inner content
             if ($modified_dependency_block =~ /^(\s*<dependency\b[^>]*>)(?:\s*)<\/dependency>\s*$/s) {
                 $modified_dependency_block = $1 . ' />';
             }
 
-            # Omit Snyk comments for legacy keep_both dependencies
             $replacement_str = $leading_whitespace . $modified_dependency_block . "\n";
         }
         elsif (grep {$dep_name =~ /$_/} @remove_packages) {
@@ -224,6 +244,30 @@ sub main {
 
             my $modified_dependency_block = $dependency_block;
             my $update_entry_ref = $update->{$dep_name};
+
+            # ------------------------------------------------------------------
+            # PRESERVE EXISTING EXCLUDES IN $exclusions
+            # ------------------------------------------------------------------
+            while ($modified_dependency_block =~ /<exclude\s+([^>]+)\/>/g) {
+                my $attrs = $1;
+                my $ex_org = $1 if $attrs =~ /\borg="([^"]+)"/;
+                my $ex_name = $1 if $attrs =~ /\b(?:name|module)="([^"]+)"/;
+
+                if (defined $ex_org || defined $ex_name) {
+                    $exclusions->{$dep_name} ||= [];
+                    my $already_queued = 0;
+                    for my $existing (@{$exclusions->{$dep_name}}) {
+                        if (($existing->{org} // '') eq ($ex_org // '') && ($existing->{name} // '') eq ($ex_name // '')) {
+                            $already_queued = 1;
+                            last;
+                        }
+                    }
+                    unless ($already_queued) {
+                        push @{$exclusions->{$dep_name}}, { org => $ex_org, name => $ex_name };
+                    }
+                }
+            }
+            # ------------------------------------------------------------------
 
             if (defined $update_entry_ref) {
                 $update_entry_ref->{"conf"} = 'runtime->default' unless $update_entry_ref->{"conf"};
@@ -246,7 +290,6 @@ sub main {
                         next if $internal_metadata_keys{$key};
                         my $new_val = $update_entry_ref->{$key};
 
-                        # Allow updating dependency name when alias/package changes (e.g., javax.annotation-api -> jakarta.annotation-api)
                         if ($key eq 'name' && $new_val ne $dep_name) {
                             if ($modified_dependency_block =~ s/\bname="([^"]*)"/name="$new_val"/i) {
                                 log_success("Update dependency name $dep_name -> $new_val");
@@ -273,8 +316,10 @@ sub main {
                 }
             }
 
+            # Strip raw excludes so Stage 4 can re-render $exclusions consistently
             $modified_dependency_block =~ s{\s*<exclude\s+[^/>]+/>}{}g;
-            # Collapse to self-closing only if the dependency has no remaining inner content
+
+            # Collapse to self-closing if no other inner elements remain
             if ($modified_dependency_block =~ /^(\s*<dependency\b[^>]*>)(?:\s*)<\/dependency>\s*$/s) {
                 $modified_dependency_block = $1 . ' />';
             }
@@ -287,6 +332,7 @@ sub main {
     }mxseg;
 
     $file_content = $updated_content;
+
     my $remove_redundant_transitives_versioned = {};
 
     # ------------------------------------------------------------------
@@ -416,7 +462,8 @@ sub main {
             $update,
             $add_if_missing,
             \%globally_add_deps,
-            $file_content
+            $file_content,
+            $dependency_conflicts
         );
     }
 
@@ -451,19 +498,20 @@ sub main {
             my @new_rules;
 
             for my $rule (@$dep_exclusions) {
-                my $mod = $rule->{module};
+                # Use 'name' key primary, fallback to 'module'
+                my $mod = $rule->{name} // $rule->{module};
                 my $group = $rule->{org};
 
                 my $already_present = 0;
 
                 if (defined $group && defined $mod) {
-                    if ($existing_inner =~ /<exclude\s+[^>]*\borg="\Q$group\E"[^>]*\b(?:module|name)="\Q$mod\E"/i ||
-                        $existing_inner =~ /<exclude\s+[^>]*\b(?:module|name)="\Q$mod\E"[^>]*\borg="\Q$group\E"/i) {
+                    if ($existing_inner =~ /<exclude\s+[^>]*\borg="\Q$group\E"[^>]*\b(?:name|module)="\Q$mod\E"/i ||
+                        $existing_inner =~ /<exclude\s+[^>]*\b(?:name|module)="\Q$mod\E"[^>]*\borg="\Q$group\E"/i) {
                         $already_present = 1;
                     }
                 }
                 elsif (defined $group && !defined $mod) {
-                    if ($existing_inner =~ /<exclude\s+[^>]*\borg="\Q$group\E"(?![^>]*\b(?:module|name)=)/i) {
+                    if ($existing_inner =~ /<exclude\s+[^>]*\borg="\Q$group\E"(?![^>]*\b(?:name|module)=)/i) {
                         $already_present = 1;
                     }
                     else {
@@ -471,7 +519,7 @@ sub main {
                     }
                 }
                 elsif (!defined $group && defined $mod) {
-                    if ($existing_inner =~ /<exclude\s+[^>]*\b(?:module|name)="\Q$mod\E"/i) {
+                    if ($existing_inner =~ /<exclude\s+[^>]*\b(?:name|module)="\Q$mod\E"/i) {
                         $already_present = 1;
                     }
                 }
@@ -532,15 +580,18 @@ sub remove_dependency_tag {
 
 sub generate_exclusion_xml {
     my ($rules_ref, $base_indent) = @_;
-    my @keyOrder = ("org", "module", "name");
+    # Enforce 'name' instead of 'module' for exclude tags
+    my @keyOrder = ("org", "name");
     my $exclusions_xml = '';
 
     if (defined $rules_ref && @$rules_ref > 0) {
         foreach my $rule (@$rules_ref) {
             $exclusions_xml .= qq!\n$base_indent<exclude!;
             for my $attribute (@keyOrder) {
-                if (defined $rule->{$attribute}) {
-                    $exclusions_xml .= qq! $attribute="$rule->{$attribute}"!;
+                # Fall back to 'module' key if 'name' isn't explicitly set
+                my $val = $rule->{$attribute} // $rule->{module};
+                if (defined $val) {
+                    $exclusions_xml .= qq! $attribute="$val"!;
                 }
             }
             $exclusions_xml .= " />";
@@ -1260,11 +1311,13 @@ sub generate_transitive_map_from_deps {
     while (my $line = <$fh>) {
         chomp $line;
 
-        if ($line =~ /^(.*?)(?:[\+\\]\-|\|\s+[\+\\]\-)\s*(.*?)$/) {
+        # Calculate tree depth by leading indentation characters (|  , +-, \-)
+        if ($line =~ /^([\s|]*)(?:[\+\\]\-)\s*(.*?)$/) {
             my $prefix = $1;
             my $payload = $2;
 
-            my $depth = length($prefix) / 4;
+            # Each tree level in show-deps indentation is 3 characters wide
+            my $depth = int(length($prefix) / 3);
 
             if ($payload =~ /([^#]+)#([^;]+);([^\s]+)/) {
                 my $org = $1;
@@ -1273,17 +1326,17 @@ sub generate_transitive_map_from_deps {
 
                 $stack[$depth] = $name;
 
+                # Register this node (at ANY depth) under the root direct dependency ($stack[0])
                 if ($depth > 0 && defined $stack[0]) {
                     my $root_parent = $stack[0];
 
-                    # First time seeing this child under root_parent -> record as resolved 'kept' revision
                     if (!exists $dynamic_transitives{$root_parent}{$name}) {
                         $dynamic_transitives{$root_parent}{$name} = {
                             kept   => $rev,
                             native => $rev,
+                            org    => $org,
                         };
                     }
-                    # Subsequent line for same child under root_parent -> recorded as evicted 'native' revision
                     else {
                         my $existing_native = $dynamic_transitives{$root_parent}{$name}{native};
                         if (version_compare($rev, $existing_native) < 0) {
@@ -1300,9 +1353,20 @@ sub generate_transitive_map_from_deps {
 }
 
 sub generate_dynamic_exclusions_from_deps {
-    my ($deps_file, $surviving_deps_ref, $exclusions_ref, $global_excludes_ref, $update_ref, $add_if_missing_ref, $globally_add_deps_ref, $file_content) = @_;
+    my ($deps_file, $surviving_deps_ref, $exclusions_ref, $global_excludes_ref, $update_ref, $add_if_missing_ref, $globally_add_deps_ref, $file_content, $conflicts_ref) = @_;
 
     return unless -e $deps_file;
+
+    my %conflict_targets;
+    if (defined $conflicts_ref) {
+        for my $primary_mod (keys %$conflicts_ref) {
+            for my $rule (@{$conflicts_ref->{$primary_mod}}) {
+                my $target_name = $rule->{name};
+                next unless defined $target_name;
+                $conflict_targets{lc($target_name)} = 1;
+            }
+        }
+    }
 
     my %max_direct_versions;
 
@@ -1394,6 +1458,11 @@ sub generate_dynamic_exclusions_from_deps {
                     }
 
                     if ($is_mismatched) {
+                        # Explicit conflict targets from dependency_conflicts must always win.
+                        # They are intentional exclusions, not generic version skew.
+                        next if $conflict_targets{lc($name)};
+                        # Do not auto-exclude a child that is already a direct dependency in the project.
+                        next if exists $surviving_deps_ref->{$name};
                         if ($name ne $root_parent) {
                             $pending_exclusions{$root_parent}{$org}{$name} = $rev;
                         }
@@ -2065,54 +2134,59 @@ sub enforce_dependency_conflicts {
 
     return unless defined $conflicts_ref && %$conflicts_ref;
 
-    for my $primary_mod (keys %$conflicts_ref) {
+    # 1. Gather all conflict targets defined for present primary loggers
+    my %conflict_artifacts;
+    for my $primary_dep (keys %$conflicts_ref) {
+        next unless exists $surviving_deps_ref->{$primary_dep};
 
-        my $is_primary_present = exists $surviving_deps_ref->{$primary_mod};
-        unless ($is_primary_present) {
-            for my $parent (keys %$transitive_map_ref) {
-                if (exists $transitive_map_ref->{$parent}{$primary_mod}) {
-                    $is_primary_present = 1;
-                    last;
-                }
-            }
-        }
+        for my $rule (@{$conflicts_ref->{$primary_dep}}) {
+            my $bad_org = $rule->{org};
+            my $bad_name = $rule->{name} // $rule->{module};
+            next unless defined $bad_name;
 
-        next unless $is_primary_present;
+            $conflict_artifacts{$bad_name} = $bad_org;
 
-        for my $rule (@{$conflicts_ref->{$primary_mod}}) {
-            my $target_org = $rule->{org};
-            my $target_module = $rule->{name};
-
-            if (exists $surviving_deps_ref->{$target_module} || $$file_content_ref =~ /<dependency\b[^>]*?\bname="\Q$target_module\E"/s) {
-                if (remove_dependency_tag($file_content_ref, $target_module)) {
-                    delete $surviving_deps_ref->{$target_module};
-                    log_warning("Conflict resolved: Removed direct dependency '$target_module' because '$primary_mod' is present.");
+            # Prune conflict causer if accidentally present as direct
+            if (exists $surviving_deps_ref->{$bad_name} || $$file_content_ref =~ /<dependency\b[^>]*?\bname="\Q$bad_name\E"/s) {
+                if (remove_dependency_tag($file_content_ref, $bad_name)) {
+                    delete $surviving_deps_ref->{$bad_name};
+                    log_warning("Conflict resolved: Removed direct dependency '$bad_name' (conflicts with '$primary_dep').");
                     $$changes_made_ref++;
                 }
             }
+        }
+    }
 
-            for my $parent_dep (keys %$transitive_map_ref) {
-                if (exists $transitive_map_ref->{$parent_dep}{$target_module}) {
-                    next unless exists $surviving_deps_ref->{$parent_dep};
+    return unless %conflict_artifacts;
 
-                    $exclusions_ref->{$parent_dep} ||= [];
+    # 2. Check every kept direct dependency for nested transitive conflict targets
+    for my $parent_dep (keys %$surviving_deps_ref) {
+        next if exists $conflicts_ref->{$parent_dep};
+        next unless $transitive_map_ref && exists $transitive_map_ref->{$parent_dep};
 
-                    my $already_exists = 0;
-                    for my $ex (@{$exclusions_ref->{$parent_dep}}) {
-                        if (($ex->{org} // '') eq $target_org && ($ex->{module} // '') eq $target_module) {
-                            $already_exists = 1;
-                            last;
-                        }
+        for my $child_dep (keys %{$transitive_map_ref->{$parent_dep}}) {
+            if (exists $conflict_artifacts{$child_dep}) {
+                my $bad_org = $conflict_artifacts{$child_dep};
+                my $bad_name = $child_dep;
+
+                $exclusions_ref->{$parent_dep} ||= [];
+                my $already_exists = 0;
+
+                for my $ex (@{$exclusions_ref->{$parent_dep}}) {
+                    my $ex_name = $ex->{name} // $ex->{module};
+                    if (($ex->{org} // '') eq ($bad_org // '') && ($ex_name // '') eq $bad_name) {
+                        $already_exists = 1;
+                        last;
                     }
+                }
 
-                    unless ($already_exists) {
-                        push @{$exclusions_ref->{$parent_dep}}, {
-                            org  => $target_org,
-                            name => $target_module
-                        };
-                        log_warning("Conflict safety: Queued inline <exclude org=\"$target_org\" name=\"$target_module\"/> under parent '$parent_dep'");
-                        $$changes_made_ref++;
-                    }
+                unless ($already_exists) {
+                    push @{$exclusions_ref->{$parent_dep}}, {
+                        org  => $bad_org,
+                        name => $bad_name,
+                    };
+                    log_warning("Conflict Prevention: Attached <exclude org=\"$bad_org\" name=\"$bad_name\"/> to '$parent_dep'");
+                    $$changes_made_ref++;
                 }
             }
         }
