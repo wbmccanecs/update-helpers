@@ -72,7 +72,7 @@ hibernate-jpamodelgen: org=org.hibernate.orm, name=hibernate-jpamodelgen, rev=6.
 hibernate-community-dialects: org=org.hibernate.orm, name=hibernate-community-dialects, rev=6.6.54.Final
 hibernate-validator: org=org.hibernate.validator, name=hibernate-validator, rev=8.0.0.Final, providers=jakarta.validation|org.hibernate.validator
 hibernate-validator-annotation-processor: org=org.hibernate.validator, name=hibernate-validator-annotation-processor, rev=8.0.0.Final
-dom4j: org=org.dom4j, name=dom4j, rev=2.2.0
+dom4j: org=org.dom4j, name=dom4j, rev=2.2.0, requires=jaxen
 byte-buddy: org=net.bytebuddy, name=byte-buddy, rev=1.17.8
 jakarta.persistence-api: org=jakarta.persistence, name=jakarta.persistence-api, rev=3.2.0
 jakarta.transaction-api: org=jakarta.transaction, name=jakarta.transaction-api, rev=2.0.1

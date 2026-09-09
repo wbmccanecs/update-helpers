@@ -47,7 +47,7 @@ if ($help) {
 }
 
 # Internal script metadata fields that should NOT be injected as XML attributes
-my %internal_metadata_keys = map {$_ => 1} qw(keep snyk keep_both replace_from replace_to providers);
+my %internal_metadata_keys = map {$_ => 1} qw(keep snyk keep_both replace_from replace_to providers requires);
 
 sub main {
     my %unused_deps_to_drop;
@@ -154,6 +154,28 @@ sub main {
     my %present_deps;
     while ($file_content =~ /<dependency\s+(?:[^>]*?\s+)?name="([^"]+)"/g) {
         $present_deps{$1} = 1;
+    }
+
+    # If a kept dependency declares 'deps' in revision-updates.txt, schedule them for insertion
+    for my $trigger (keys %present_deps) {
+        if (exists $update->{$trigger} && exists $update->{$trigger}{requires} && defined $update->{$trigger}{requires}) {
+            my $reqs = $update->{$trigger}{requires};
+
+            # Split multiple required dependencies by pipe or comma
+            my @req_list = grep {length $_} split /[|,]+/, $reqs;
+
+            for my $req (@req_list) {
+                unless (exists $update->{$req}) {
+                    die "revision-updates.txt references deps for '$trigger' but no entry for required dep '$req' exists in revision-updates.txt\n";
+                }
+
+                # Only schedule insertion if not already directly declared in ivy.xml
+                unless ($present_deps{$req}) {
+                    $add_if_missing->{$trigger} ||= [];
+                    push @{$add_if_missing->{$trigger}}, $req unless grep {$_ eq $req} @{$add_if_missing->{$trigger}};
+                }
+            }
+        }
     }
 
     # ------------------------------------------------------------------
