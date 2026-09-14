@@ -174,11 +174,12 @@ my %HTML_VOID_TAGS = map {$_ => 1} qw(
 );
 
 my $checks;
-my ($help, $verbose);
+my ($help, $verbose, $no_ui);
 
 GetOptions(
     "dir|d=s"   => \$start_directory,
     "verbose|v" => \$verbose,
+    "no-ui"     => \$no_ui,
     "help|h"    => \$help,
 ) or usage();
 
@@ -203,12 +204,12 @@ log_info("DEBUG (Top-Level): File::Find will start from absolute path: '$abs_sta
 
 log_success("--- Starting All Safety Checks ---");
 safety_check($start_directory, 'java', $java_patterns, $java_multiline_patterns) if $checks->{java} || $checkAll;
-if ($checks->{jsp} || $checkAll) {
+if (($checks->{jsp} || $checkAll) && !$no_ui) {
     safety_check($start_directory, 'jsp', $jsp_patterns, $jsp_multiline_patterns);
     check_unused_tagdefs($start_directory);
     check_xml_well_formedness($start_directory, [ 'jsp', 'jspf', 'htm', 'html', 'tld', 'tag' ]);
 }
-safety_check($start_directory, 'js', $js_patterns) if $checks->{js} || $checkAll;
+safety_check($start_directory, 'js', $js_patterns) if (($checks->{js} || $checkAll) && !$no_ui);
 safety_check($start_directory, 'properties', $properties_patterns) if $checks->{properties} || $checkAll;
 if ($checks->{xml} || $checkAll) {
     safety_check($start_directory, 'xml', $xml_patterns, $xml_multiline_patterns);
@@ -219,6 +220,10 @@ safety_check($start_directory, 'yml', $yaml_patterns) if $checks->{yml} || $chec
 safety_check($start_directory, 'sh', $sh_patterns) if $checks->{sh} || $checkAll;
 file_pattern_safety_checks($start_directory, $file_patterns) if $checks->{files} || $checks->{file_patterns} || $checkAll;
 misc_checks($start_directory) if $checks->{misc} || $checkAll;
+
+if ($no_ui || $checks->{ui}) {
+    ui_recommendations($start_directory);
+}
 
 if ($checkAll) {
     for my $m (@unwanted) {
@@ -1125,6 +1130,371 @@ sub check_xml_well_formedness {
     }
 
     return $failed_count;
+}
+
+sub pattern_matches_smoke {
+    my ($pat) = @_;
+    return 0 unless defined $pat;
+    $pat =~ s/^\s+|\s+$//g;
+    return 1 if $pat =~ /smoke\.htm/i;
+    # exact match with or without leading slash
+    return 1 if $pat =~ m{^/?smoke\.htm$}i;
+    # extension mapping like *.htm
+    return 1 if $pat =~ /^\*\.(htm|html|jsp)$/i;
+    # prefix mapping like /something/* or /*
+    if ($pat =~ m{^/.*\*$}) {
+        (my $prefix = $pat) =~ s/\*$//; # remove trailing *
+        $prefix = '/' if $prefix eq '';
+        return 1 if index('/smoke.htm', $prefix) == 0;
+    }
+    # catch any-all
+    return 1 if $pat eq '/' || $pat eq '/*';
+    return 0;
+}
+
+sub filter_has_smoke_mapping {
+    my ($content, $fname) = @_;
+    return 0 unless defined $content && defined $fname;
+    while ($content =~ /(<filter-mapping\b[^>]*>.*?<\/filter-mapping>)/gis) {
+        my $bm = $1;
+        if ($bm =~ /<filter-name>\s*\Q$fname\E\s*<\/filter-name>/i) {
+            my @p = ($bm =~ /<url-pattern>\s*([^<]+?)\s*<\/url-pattern>/gis);
+            return 1 if grep {pattern_matches_smoke($_)} @p;
+        }
+    }
+    return 0;
+}
+
+sub ui_recommendations {
+    my ($current_dir) = @_;
+
+    log_info("\nUI removal recommendations (--no-ui)");
+    log_info("-" x 50);
+
+    find(sub {
+        # skip directories and vendor build folders
+        if (-d $_) {
+            my $full = $File::Find::name;
+            if ($full =~ m#/(?:\.git|target|build|node_modules|bin|out|deploy|reports|test-automation|test-bin|war/META-INF|war/WEB-INF/classes|war/WEB-INF/lib|\.settings)$#) {
+                $File::Find::prune = 1;
+                return;
+            }
+        }
+
+        return unless -f $_;
+
+        # Recommend removal of UI resource files
+        # Enhanced web.xml handling (document-order aware)
+        if ($_ eq 'web.xml') {
+            local $/;
+            open my $fh, '<', $_ or return;
+            my $content = <$fh>;
+            close $fh;
+
+            my @blocks;
+            while ($content =~ /(<(filter-mapping|filter|servlet-mapping|servlet|jsp-config|welcome-file-list|mime-mapping|error-page|session-config)\b[^>]*>.*?<\/\2>)/gis) {
+                my $block = $1;
+                my $type = $2;
+                my $pos = $-[0];
+                push @blocks, { type => $type, block => $block, pos => $pos };
+            }
+
+            my %filter_count;
+            for my $b (@blocks) {
+                if ($b->{type} eq 'filter-mapping') {
+                    if ($b->{block} =~ /<filter-name>\s*([^<]+?)\s*<\/filter-name>/i) {
+                        $filter_count{$1}++;
+                    }
+                }
+            }
+
+            # Build filter name -> class map and precompute which filters have a smoke mapping anywhere
+            my %filter_class_by_name;
+            my %filter_has_smoke_mapping;
+            my %filter_mapping_positions;
+            for my $b (@blocks) {
+                if ($b->{type} eq 'filter') {
+                    if ($b->{block} =~ /<filter-name>\s*([^<]+?)\s*<\/filter-name>/i) {
+                        my $fn = $1;
+                        if ($b->{block} =~ /<filter-class>\s*([^<]+?)\s*<\/filter-class>/i) {
+                            $filter_class_by_name{$fn} = $1;
+                        }
+                    }
+                }
+            }
+            for my $b (@blocks) {
+                if ($b->{type} eq 'filter-mapping') {
+                    if ($b->{block} =~ /<filter-name>\s*([^<]+?)\s*<\/filter-name>/i) {
+                        my $fn = $1;
+                        my @pats = ($b->{block} =~ /<url-pattern>\s*([^<]+?)\s*<\/url-pattern>/gis);
+                        push @{$filter_mapping_positions{$fn}}, $b->{pos};
+                        if (grep {pattern_matches_smoke($_)} @pats) {
+                            $filter_has_smoke_mapping{$fn} = 1;
+                        }
+                    }
+                }
+            }
+
+            my @terminal_filter_patterns = ('TestDriverFilter');
+
+            my $smoke_handled = 0;
+            my $smoke_pos; # document position where smoke was handled
+
+            for my $b (sort {$a->{pos} <=> $b->{pos}} @blocks) {
+                my $type = $b->{type};
+                my $blk = $b->{block};
+
+                if ($type eq 'filter-mapping') {
+                    my ($fname) = $blk =~ /<filter-name>\s*([^<]+?)\s*<\/filter-name>/i;
+                    my @pats = ($blk =~ /<url-pattern>\s*([^<]+?)\s*<\/url-pattern>/gis);
+
+                    my $matches_smoke = grep {pattern_matches_smoke($_)} @pats;
+
+                    # If this mapping belongs to a terminal filter, always keep it and mark smoke handled (terminal filters must be preserved)
+                    my $fclass = $filter_class_by_name{$fname} || '';
+                    my $is_terminal = 0;
+                    for my $pat (@terminal_filter_patterns) {$is_terminal = 1 if $fclass =~ /\Q$pat\E/i}
+                    if ($is_terminal && $matches_smoke) {
+                        $smoke_handled = 1;
+                        $smoke_pos = $b->{pos};
+                        next;
+                    }
+
+                    # If this mapping references smoke.htm
+                    if ($matches_smoke) {
+                        # If smoke hasn't been handled yet by an earlier mapping or a terminal filter, keep this mapping and mark smoke handled
+                        if (!$smoke_handled) {
+                            $smoke_handled = 1;
+                            $smoke_pos = $b->{pos};
+                            next;
+                        }
+                        # smoke already handled by an earlier mapping/filter: this later mapping can be removed
+                        else {
+                            log_warning($File::Find::name . ": remove filter-mapping for filter '$fname' (url-patterns: " . join(', ', @pats) . ")");
+
+                            if (($filter_count{$fname} || 0) <= 1) {
+                                # if all mappings for this filter occur after smoke_pos, it's safe to remove the filter
+                                my $all_after = 1;
+                                for my $mp (@{$filter_mapping_positions{$fname} || []}) {
+                                    if (defined $smoke_pos && $mp <= $smoke_pos) {
+                                        $all_after = 0;
+                                        last
+                                    }
+                                }
+                                if ($all_after && $content =~ /(<filter\b[^>]*>.*?<filter-name>\s*\Q$fname\E\s*<\/filter-name>.*?<\/filter>)/is) {
+                                    my $matched = $1;
+                                    my $pos = index($content, $matched);
+                                    my $line_num = () = substr($content, 0, $pos) =~ /\n/g;
+                                    $line_num++;
+                                    log_warning($File::Find::name . ": remove <filter> '$fname' as it has no other mappings (filter at line $line_num)");
+                                }
+                            }
+                            next;
+                        }
+                    }
+
+                    # Mappings that don't reference smoke.htm may be removed.
+                    log_warning($File::Find::name . ": remove filter-mapping for filter '$fname' (url-patterns: " . join(', ', @pats) . ")");
+
+                    # If this filter has only this mapping, and no mapping protects smoke, recommend removing the filter too
+                    if (($filter_count{$fname} || 0) <= 1) {
+                        if (!filter_has_smoke_mapping($content, $fname) && $content =~ /(<filter\b[^>]*>.*?<filter-name>\s*\Q$fname\E\s*<\/filter-name>.*?<\/filter>)/is) {
+                            my $matched = $1;
+                            my $pos = index($content, $matched);
+                            my $line_num = () = substr($content, 0, $pos) =~ /\n/g;
+                            $line_num++;
+                            log_warning($File::Find::name . ": remove <filter> '$fname' as it has no other mappings (filter at line $line_num)");
+                        }
+                    }
+                }
+                elsif ($type eq 'filter') {
+                    my ($fname) = $blk =~ /<filter-name>\s*([^<]+?)\s*<\/filter-name>/i;
+                    # If this filter has a mapping that matches smoke.htm anywhere in the file, do not recommend removing it
+                    if (defined $fname) {
+                        # If filter class is terminal and has a smoke mapping anywhere, mark smoke_handled (terminal behavior)
+                        my $fclass = $filter_class_by_name{$fname} || '';
+                        my $is_terminal = 0;
+                        for my $pat (@terminal_filter_patterns) {$is_terminal = 1 if $fclass =~ /\Q$pat\E/i}
+                        if ($is_terminal && $filter_has_smoke_mapping{$fname}) {
+                            $smoke_handled = 1;
+                            next;
+                        }
+
+                        if (filter_has_smoke_mapping($content, $fname)) {
+                            # there's a mapping protecting smoke.htm; skip removal (mapping logic will keep mappings)
+                            next;
+                        }
+
+                        # If there are no mappings for this filter anywhere, safe to recommend removal now
+                        if (!($filter_count{$fname} || 0)) {
+                            log_warning($File::Find::name . ": remove <filter> '$fname' (no mappings)");
+                            next;
+                        }
+
+                        # If we have already handled smoke and all mappings for this filter occur after that point, it's safe to remove the <filter>
+                        if ($smoke_handled) {
+                            my $all_after = 1;
+                            for my $mp (@{$filter_mapping_positions{$fname} || []}) {
+                                if (defined $smoke_pos && $mp <= $smoke_pos) {
+                                    $all_after = 0;
+                                    last
+                                }
+                            }
+                            if ($all_after) {
+                                log_warning($File::Find::name . ": remove <filter> '$fname' (all mappings occur after smoke handled)");
+                                next;
+                            }
+                        }
+
+                        # Otherwise, defer removal to mapping-processing to avoid duplicate/incorrect messages
+                        next;
+                    }
+                    else {
+                        # anonymous filter block: only remove if no mapping references it (best-effort)
+                        log_warning($File::Find::name . ": remove <filter> block (no smoke.htm references)");
+                    }
+                }
+                elsif ($type eq 'servlet-mapping') {
+                    my ($sname) = $blk =~ /<servlet-name>\s*([^<]+?)\s*<\/servlet-name>/i;
+                    my @pats = ($blk =~ /<url-pattern>\s*([^<]+?)\s*<\/url-pattern>/gis);
+                    my $matches_smoke = grep {pattern_matches_smoke($_)} @pats;
+
+                    if (!$smoke_handled) {
+                        if ($matches_smoke) {
+                            $smoke_handled = 1;
+                            next;
+                        }
+                        else {
+                            log_warning($File::Find::name . ": remove <servlet-mapping> for servlet '$sname' (url-patterns: " . join(', ', @pats) . ")") if @pats;
+                        }
+                    }
+                    else {
+                        log_warning($File::Find::name . ": remove <servlet-mapping> for servlet '$sname' (url-patterns: " . join(', ', @pats) . ")") if @pats;
+                    }
+                }
+                elsif ($type eq 'servlet') {
+                    my ($sname) = $blk =~ /<servlet-name>\s*([^<]+?)\s*<\/servlet-name>/i;
+                    my ($sclass) = $blk =~ /<servlet-class>\s*([^<]+?)\s*<\/servlet-class>/i;
+                    if (defined $sclass && $sclass =~ /DispatcherServlet/i) {
+                        next;
+                    }
+
+                    if (!$smoke_handled) {
+                        if ($blk =~ /smoke\.htm/i) {
+                            $smoke_handled = 1;
+                            next;
+                        }
+                        else {
+                            if ($sname) {log_warning($File::Find::name . ": remove <servlet> '$sname' (no smoke.htm references)");}
+                            else {log_warning($File::Find::name . ": remove <servlet> block (no smoke.htm references)");}
+                        }
+                    }
+                    else {
+                        if ($sname) {log_warning($File::Find::name . ": remove <servlet> '$sname' (smoke already handled earlier)");}
+                        else {log_warning($File::Find::name . ": remove <servlet> block (smoke already handled earlier)");}
+                    }
+                }
+                else {
+                    if (!$smoke_handled) {
+                        if ($blk =~ /smoke\.htm/i) {
+                            $smoke_handled = 1;
+                            next;
+                        }
+                        else {
+                            log_warning($File::Find::name . ": remove <$type> block (no smoke.htm references)");
+                        }
+                    }
+                    else {
+                        log_warning($File::Find::name . ": remove <$type> block (smoke already handled earlier)");
+                    }
+                }
+            }
+        }
+        if ($_ =~ /\.(jsp|jspf|htm|html|js|css|tld|tag)$/i) {
+            log_warning("remove " . $File::Find::name);
+        }
+
+        # Recommend removing web.xml filter-mappings that point to page resources (except smoke.htm)
+        if (0 && $_ eq 'web.xml') {
+            local $/;
+            open my $fh, '<', $_ or return;
+            my $content = <$fh>;
+            close $fh;
+
+            my @mappings;
+            while ($content =~ /(<filter-mapping\b[^>]*>.*?<\/filter-mapping>)/gis) {
+                my $block = $1;
+                my ($filter_name) = $block =~ /<filter-name>\s*([^<]+?)\s*<\/filter-name>/i;
+                my @patterns = ($block =~ /<url-pattern>\s*([^<]+?)\s*<\/url-pattern>/gis);
+                push @mappings, { block => $block, filter_name => $filter_name, patterns => \@patterns } if defined $filter_name;
+            }
+
+            my %filter_count;
+            $filter_count{$_->{filter_name}}++ for @mappings;
+
+            for my $m (@mappings) {
+                my $fname = $m->{filter_name};
+                my @pats = @{$m->{patterns}};
+                next unless @pats;
+                # Only remove the mapping if NONE of the url-patterns could match smoke.htm
+                my $has_smoke = 0;
+                for my $p (@pats) {
+                    $has_smoke = 1 if pattern_matches_smoke($p);
+                }
+                unless ($has_smoke) {
+                    log_warning($File::Find::name . ": remove filter-mapping for filter '$fname' (url-patterns: " . join(', ', @pats) . ")");
+
+                    if (($filter_count{$fname} || 0) <= 1) {
+                        if (!filter_has_smoke_mapping($content, $fname) && $content =~ /(<filter\b[^>]*>.*?<filter-name>\s*\Q$fname\E\s*<\/filter-name>.*?<\/filter>)/is) {
+                            my $matched = $1;
+                            my $pos = index($content, $matched);
+                            my $line_num = () = substr($content, 0, $pos) =~ /\n/g;
+                            $line_num++;
+                            log_warning($File::Find::name . ": remove <filter> '$fname' as it has no other mappings (filter at line $line_num)");
+                        }
+                    }
+                }
+            }
+
+            # Additional removals: jsp-config, welcome-file-list, servlet, servlet-mapping, mime-mapping, error-page, session-config
+            for my $tag (qw(jsp-config welcome-file-list servlet servlet-mapping mime-mapping error-page session-config)) {
+                while ($content =~ /(<$tag\b[^>]*>.*?<\/$tag>)/gis) {
+                    my $block = $1;
+                    # skip if block references smoke.htm via any url-pattern or content
+                    next if $block =~ /smoke\.htm/i;
+
+                    if ($tag eq 'servlet') {
+                        my ($sname) = $block =~ /<servlet-name>\s*([^<]+?)\s*<\/servlet-name>/i;
+                        my ($sclass) = $block =~ /<servlet-class>\s*([^<]+?)\s*<\/servlet-class>/i;
+                        # If this servlet is a Spring DispatcherServlet, avoid recommending removal
+                        if (defined $sclass && $sclass =~ /DispatcherServlet/i) {
+                            next;
+                        }
+                        if ($sname) {
+                            log_warning($File::Find::name . ": remove <servlet> '$sname' (no smoke.htm references)");
+                        }
+                        else {
+                            log_warning($File::Find::name . ": remove <servlet> block (no smoke.htm references)");
+                        }
+                    }
+                    elsif ($tag eq 'servlet-mapping') {
+                        my @spats = ($block =~ /<url-pattern>\s*([^<]+?)\s*<\/url-pattern>/gis);
+                        # only remove if none of the servlet-mapping patterns match smoke
+                        my $has_smoke = 0;
+                        $has_smoke = 1 if grep {pattern_matches_smoke($_)} @spats;
+                        unless ($has_smoke) {
+                            log_warning($File::Find::name . ": remove <servlet-mapping> (url-patterns: " . join(', ', @spats) . ")") if @spats;
+                        }
+                    }
+                    else {
+                        log_warning($File::Find::name . ": remove <$tag> block (no smoke.htm references)");
+                    }
+                }
+            }
+        }
+    }, $current_dir);
+
+    log_info("-" x 50);
 }
 
 __END__
