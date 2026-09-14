@@ -26,75 +26,88 @@ my $remove_if_exists = {
 };
 
 my $java_patterns = {
-    "org\\.apache\\.commons\\.lang\\."                                                                                                                               => "commons-lang",
-    "org\\.apache\\.commons\\.collections\\."                                                                                                                        => "commons-collections",
-    "com\\.ibm\\.mq\\.jms"                                                                                                                                           => "IBM MQ JMS",
-    "WebMvcConfigurerAdapter"                                                                                                                                        => "WebMvcConfigurerAdapter",
+    # Old APIs
+    'org\.apache\.commons\.lang\.'                                                                                                                                   => "commons-lang",
+    'org\.apache\.commons\.collections\.'                                                                                                                            => "commons-collections",
+    'com\.ibm\.mq\.jms'                                                                                                                                              => "IBM MQ JMS",
     'import *javax\.(?!cache|crypto|mail|management|naming|net|sql|xml\.(?>XMLConstants|catalog|datatype|namespace|parsers|stream|transform|validation|xpath))(\w+)' => 'javax.$1',
-    "HandlerInterceptorAdapter"                                                                                                                                      => "HandlerInterceptorAdapter",
-    "org.apache.http.client"                                                                                                                                         => "httpcomponents",
-    "org.apache.commons.httpclient"                                                                                                                                  => "httpcomponents",
-    "DefaultHttpRequestRetryStrategy"                                                                                                                                => "retry strategies",
-    "getPatternsCondition"                                                                                                                                           => "test-harness",
+    'org\.apache\.http\.client'                                                                                                                                      => "httpcomponents",
+    "org\.apache\.commons\.httpclient"                                                                                                                               => "httpcomponents",
     "springfox"                                                                                                                                                      => "upgrade springfox to springdoc",
+    'import +org\.apache\.log4j\.Logger'                                                                                                                             => 'replace log4j with slf4j',
+    'import +org\.apache\.commons\.logging'                                                                                                                          => 'replace commons-logging with slf4j',
+
+    # SSOE replacement
+    'org\.\apereo\.'                                                                                                                                                 => "remove Apereo CAS",
+    'ExtranetAuthorizationFilter'                                                                                                                                    => "replace with EmployeeFormBasedAuthFilterForLDAP",
+    'isAuthorizedUser'                                                                                                                                               => "replace with manageAuthorizedUser",
+    'EmployeeLdapHelper[^V]'                                                                                                                                         => "remove EmployeeLdapHelper",
+    '(ticketValidation|authentication)Filter'                                                                                                                        => "remove ticketValidation and authentication filters",
+
+    '\b(?!SpringWebConfig\b)\w+\s+(implements\s+WebMvcConfigurer)'                                                                                                   => 'remove $1',
+    'extends +(WebMvcConfigurerAdapter|WebMvcConfigurationSupport)'                                                                                                  => "implement WebMvcConfigurer",
+    'HandlerInterceptorAdapter'                                                                                                                                      => "HandlerInterceptorAdapter",
+    'DefaultHttpRequestRetryStrategy'                                                                                                                                => "retry strategies",
+    'getPatternsCondition'                                                                                                                                           => "test-harness",
     "(MQ_QMGRNAME|MgicQueueConnectionFactory.setCluster)"                                                                                                            => "MQCLUSTER",
     "(?<!Service)\\.findOne\\(\\w+\\)"                                                                                                                               => "refactor to use findById()",
-    "org\\.\\apereo\\."                                                                                                                                              => "remove Apereo CAS",
-    "ExtranetAuthorizationFilter"                                                                                                                                    => "replace with EmployeeFormBasedAuthFilterForLDAP",
-    "isAuthorizedUser"                                                                                                                                               => "replace with manageAuthorizedUser",
-    "EmployeeLdapHelper[^V]"                                                                                                                                         => "remove EmployeeLdapHelper",
-    "(ticketValidation|authentication)Filter"                                                                                                                        => "remove ticketValidation and authentication filters",
     '\.setApplicationId\(\D[_\w]+\)'                                                                                                                                 => "convert from setApplicationId() to setUrl()",
     "\@DependsOn"                                                                                                                                                    => "replace \@DependsOn with DI",
-    "com.mgic.(spring|system).Environment"                                                                                                                           => "refactor to use environment properties",
-    "import [\\w\\.]+\.EnvironmentHelper"                                                                                                                            => "import mgic.com.spring.Environment",
-    "EnvironmentHelper"                                                                                                                                              => "refactor to use Environment component",
+    'com\.mgic\.(spring|system)\.Environment'                                                                                                                        => "refactor to use environment properties",
+    'import +[\w\.]+\.EnvironmentHelper'                                                                                                                             => "import mgic.com.spring.Environment",
+    'EnvironmentHelper'                                                                                                                                              => "refactor to use Environment component",
     'ConnectModuleDataSource'                                                                                                                                        => 'refactor to CyberArkDatasource',
-    '@EnableWebMvc'                                                                                                                                                  => 'remove EnableWebMvc annotation',
     '\.getConnectInfo\W'                                                                                                                                             => 'replace with getConnectInfoForURL',
-    'import org.powermock'                                                                                                                                           => 'remove powermock',
-    'import +org.apache.log4j.Logger'                                                                                                                                => 'remove old log4j',
-    'import +org.apache.commons.logging'                                                                                                                             => 'remove commons-logging',
-    'new (Integer|Short|Long|Byte)[^\w]'                                                                                                                             => 'fix $1 boxing',
+    'import +org.powermock'                                                                                                                                          => 'remove powermock',
+    'import +org.easymock'                                                                                                                                           => 'remove easymock',
+    'new +(Integer|Short|Long|Byte)[^\w]'                                                                                                                            => 'fix $1 boxing',
     '@EnableMBeanExport'                                                                                                                                             => 'remove @EnableMBeanExport',
     '(CommonsMultipartResolver)'                                                                                                                                     => 'replace $1 with StandardServletMultipartResolver',
     '(\w*JdbcTemplate)'                                                                                                                                              => '$1',
     'filter\.PageFilter'                                                                                                                                             => 'replace PageFilter with SiteMeshFilter',
     'com\.mgic\.business\.aims\.'                                                                                                                                    => 'use aimservice-client.jar',
     'org\.hibernate\.annotations\.Named'                                                                                                                             => 'use JPA NamedNativeQuery',
+
+    '(@Value.*Integer\.MAX_VALUE)'                                                                                                                                   => 'update SpEL $1',
+
+    # FQCN Declarations
+    '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s+\w+(?:\s*[=;,])'                => 'FQCN member declaration: $1',
+    '^(?:[^/]|/(?!/))*?\bnew\s+((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s*\('                                                                                => 'FQCN construction: $1',
     '(JMSC\.MQJMS_(\w+))'                                                                                                                                            => 'replace $1 with WMQConstants.WMQ_$2',
 };
 
 my $java_multiline_patterns = {
     # Potential CVE vulnerabilities
-    '@(?:NativeQuery|Query\s*\(\s*value[^,]+,\s*nativeQuery\s*=\s*true\s*\)|Query\s*\(\s*nativeQuery\s*=\s*true\s*\))[^;]*?(?:Pageable|Sort)\s+\w+'   => 'Potential SQL Injection vulnerability (SNYK-JAVA-ORGSPRINGFRAMEWORKDATA-19267482)',
+    '@(?:NativeQuery|Query\s*\(\s*value[^,]+,\s*nativeQuery\s*=\s*true\s*\)|Query\s*\(\s*nativeQuery\s*=\s*true\s*\))[^;]*?(?:Pageable|Sort)\s+\w+' => 'Potential SQL Injection vulnerability (SNYK-JAVA-ORGSPRINGFRAMEWORKDATA-19267482)',
+    '\b(AutoPopulatingList|LazyList)\b'                                                                                                             => 'Potential DoS (SNYK-JAVA-ORGSPRINGFRAMEWORK-19267072): self-populating list ($1) usage detected',
 
     # Return types and parameters
-    'BigDecimal.*?getResult'                                                                                                                          => 'query returns BigDecimal',
-    'MappingJacksonJsonView\s+get'                                                                                                                    => 'MappingJacksonJsonView',
-    'RequestMappingHandlerAdapter\s+request'                                                                                                          => 'rename to createRequestMappingHandlerAdapter',
+    'BigDecimal[^;{}]*?getResult'                                                                                                                   => 'query returns BigDecimal',
+    'MappingJacksonJsonView\s+get'                                                                                                                  => 'MappingJacksonJsonView',
+    'RequestMappingHandlerAdapter\s+request'                                                                                                        => 'rename to createRequestMappingHandlerAdapter',
 
     # Chained methods (DBCP2 / Commons Pool upgrades)
-    '\s*\.\s*(setRemovedAbandoned)\s*\('                                                                                                              => 'replace $1 with setRemoveAbandonedOnMaintenance',
-    '\s*\.\s*(setTimeBetweenEvictionRunsMillis)\s*\('                                                                                                 => 'replace $1 with setDurationBetweenEvictionRuns',
-    '\s*\.\s*(setRemoveAbandonedTimeout)\s*\(\s*(\d+)'                                                                                                => 'replace $1($2) with $1(Duration)',
-    '\s*\.\s*(setMaxWait)\s*\(\s*(\d+)'                                                                                                               => 'replace $1($) with $1(Duration)',
+    '\s*\.\s*(setRemovedAbandoned)\s*\('                                                                                                            => 'replace $1 with setRemoveAbandonedOnMaintenance',
+    '\s*\.\s*(setTimeBetweenEvictionRunsMillis)\s*\('                                                                                               => 'replace $1 with setDurationBetweenEvictionRuns',
+    '\s*\.\s*(setRemoveAbandonedTimeout)\s*\(\s*(\d+)'                                                                                              => 'replace $1($2) with $1(Duration)',
+    '\s*\.\s*(setMaxWait)\s*\(\s*(\d+)'                                                                                                             => 'replace $1($) with $1(Duration)',
 
-    # FQCN Declarations
-    '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s+\w+(?:\s*[=;,])' => 'FQCN member declaration: $1',
-    '^(?:[^/]|/(?!/))*?\bnew\s+((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s*\('                                                                 => 'FQCN construction: $1',
+    # Annotations
+    '@EnableWebMvc(?!.*\bWebMvcConfigurer\b)'                                                                                                       => 'remove EnableWebMvc annotation',
+    '(?s)\A(?!.*@EnableWebMvc).*\bWebMvcConfigurer\b'                                                                                               => 'add missing EnableWebMvc annotation',
 };
 
 my $xml_patterns = {
-    "org\\.jasig"                                     => "jasig CAS",
-    "org\\.apereo\\.cas"                              => "remove apereo CAS",
-    "<bean"                                           => "move beans to java config",
-    "JDK_(?!21)"                                      => "JDK",
-    "http://java.sun.com/xml/ns/javaee"               => "upgrade to jakarta 6.0",
-    "Extranet(Authentication|TicketValidation)Filter" => "remove extranet filters",
+    'org\.jasig'                                      => "jasig CAS",
+    'org\.apereo\.cas'                                => "remove apereo CAS",
+    '<bean'                                           => "move beans to java config",
+    'JDK_(?!21)'                                      => "JDK",
+    'http://java.sun.com/xml/ns/javaee'               => "upgrade to jakarta 6.0",
+    'Extranet(Authentication|TicketValidation)Filter' => "remove extranet filters",
     "(ticketValidation|authentication)Filter"         => "remove ticketValidation and authentication filters",
     "nagios"                                          => "remove nagios from security groups",
     'mgic.entity.revision=\d+'                        => "check mgic.entity.revision",
+    'smoke-status.htm'                                => 'remove smoke-status.htm',
 };
 
 my $xml_multiline_patterns = {
@@ -107,9 +120,9 @@ my $iml_patterns = {
 };
 
 my $jsp_patterns = {
-    "javax\\.servlet\\.jsp"                           => "javax JSP API",
-    "(http://java.sun.com/jsp|https://www.owasp.org)" => "old taglibs",
-    "<enc:forJavaScriptBlockvalue"                    => "enc:forJavaScriptBlockvalue",
+    'javax\.servlet\.jsp'                             => "javax JSP API",
+    '(http://java.sun.com/jsp|https://www.owasp.org)' => "old taglibs",
+    '<enc:forJavaScriptBlockvalue'                    => "enc:forJavaScriptBlockvalue",
 };
 
 my $jsp_multiline_patterns = {
@@ -122,6 +135,7 @@ my $properties_patterns = {
     "content.ts.mgicint.net"         => "static content",
     "(rd|qa).content.mgic.(com|net)" => "static content",
     "ojdbc8.jat"                     => "move ojdbc8 driver to ivy.xml",
+    'sb\.application\.servers'       => "remove sb.application.servers",
 };
 
 my $yaml_patterns = {
@@ -972,9 +986,7 @@ sub validate_xml_content_pure_perl {
     $content =~ s/(<\?.*?\?>)/blank_keep_newlines($1)/gse;
     $content =~ s/(<!DOCTYPE.*?>)/blank_keep_newlines($1)/gse;
 
-    $content =~ s{(<script\b[^>]*>)(.*?)(</script>)}{$1 . blank_keep_newlines($2) . $3}gse;
-    $content =~ s{(<style\b[^>]*>)(.*?)(</style>)}{$1 . blank_keep_newlines($2) . $3}gse;
-
+    # Blank taglib-style custom tags (e.g., <mux:.../>) BEFORE handling <script> / <style>
     my $taglib_regex = qr{
         </?
         [a-zA-Z0-9_\-\.]+:[a-zA-Z0-9_\-\.]+
@@ -982,6 +994,9 @@ sub validate_xml_content_pure_perl {
         /?>
     }xms;
     $content =~ s/($taglib_regex)/blank_keep_newlines($1)/gse;
+
+    $content =~ s{(<script\b[^>]*>)(.*?)(</script>)}{$1 . blank_keep_newlines($2) . $3}gse;
+    $content =~ s{(<style\b[^>]*>)(.*?)(</style>)}{$1 . blank_keep_newlines($2) . $3}gse;
 
     my @tag_stack;
     my $root_element_count = 0;
