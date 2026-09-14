@@ -83,7 +83,7 @@ nimbus-jose-jwt: org=com.nimbusds, name=nimbus-jose-jwt, rev=10.9.1
 
 # Other
 poi: org=org.apache.poi, name=poi, rev=5.5.1
-poi-ooxml: org=org.apache.poi, name=poi-ooxml, rev=5.5.1
+poi-ooxml: org=org.apache.poi, name=poi-ooxml, rev=5.5.1, requires=poi-ooxml-schemas
 poi-ooxml-schemas: org=org.apache.poi, name=poi-ooxml-schemas, rev=4.1.2, keep=1
 tika-core: org=org.apache.tika, name=tika-core, rev=3.3.1
 tika-parsers-standard-package: org=org.apache.tika, name=tika-parsers-standard-package, rev=3.3.1
@@ -165,3 +165,18 @@ db2jcc4=>jcc
 jta=>jakarta.transaction-api
 jaxws-api=>jakarta.xml.ws-api
 jaxb-api=>jakarta.xml.bind-api
+
+# Removed packages
+-commons-httpclient
+-commons-logging
+-commons-pool
+-jandex
+-log4jdbc
+-powermock-
+-easymock
+-httpcore
+-taglibs-standard-impl
+-javax.activation
+-javassist
+-hamcrest-core
+-hibernate-jpamodelgen

@@ -74,20 +74,7 @@ sub main {
 
     my %used_deps_to_keep = extract_all_referenced_packages(\@src_dirs, (-d 'war' ? 'war' : undef), \@base_packages);
 
-    my @remove_packages = (
-        "commons-httpclient",
-        "commons-logging",
-        "commons-pool",
-        'jandex',
-        "log4jdbc",
-        "^powermock-",
-        "easymock",
-        "httpcore",
-        'taglibs-standard-impl',
-        "javax.activation",
-        "javassist",
-        "hamcrest-core",
-    );
+    my @remove_packages = [];
 
     if ($no_ui) {
         log_info("--- HEADLESS MODE ACTIVE: Pruning UI dependencies ---");
@@ -111,11 +98,10 @@ sub main {
         'commons-lang' => 'convert all classes to use commons-lang3, try to remove commons-lang dependency',
     };
 
-    my $update = load_update_data();
+    my $update = load_update_data(\@remove_packages);
 
     if ($hibernate5) {
         $update->{"hibernate-core-jakarta"} = { org => "org.hibernate", name => "hibernate-core-jakarta", rev => "5.6.15.Final" };
-        $update->{"hibernate-jpamodelgen"} = { org => "org.hibernate", name => "hibernate-jpamodelgen", rev => "5.6.15.Final" };
         $update->{"hibernate-core"} = $update->{"hibernate-core-jakarta"};
         push @remove_packages, "hibernate-community-dialects";
     }
@@ -1664,7 +1650,7 @@ sub process_parent_triggered_additions {
                         $new_dep_xml = qq!\n${trigger_indent}<dependency org="$org" name="$name" rev="$dep->{rev}" conf="$conf">$exclusions_xml\n${trigger_indent}</dependency>!;
                     }
                     else {
-                        $new_dep_xml = qq!\n${trigger_indent}<dependency org="$org" name="$name" rev="$dep->{rev}" conf="$conf" />!;
+                        $new_dep_xml = qq!${trigger_indent}<dependency org="$org" name="$name" rev="$dep->{rev}" conf="$conf" />!;
                     }
 
                     log_info("Add missing dependency: $name ($dep->{rev})");
@@ -1926,6 +1912,7 @@ sub report_missing_transitive_imports {
 }
 
 sub load_update_data {
+    my ($remove_packages) = @_;
     my $script_dir = $FindBin::RealBin;
     my $update_hash_file = "$script_dir/revision-updates.txt";
     my $hash = {};
@@ -1969,6 +1956,10 @@ sub load_update_data {
                 else {
                     log_warning("missing key: $new");
                 }
+            }
+            elsif ($line =~ /^-/) {
+                my $name = substr($line, 1);
+                push @$remove_packages, $name;
             }
             else {
                 my @fields = split /[:,]\s*/, $line;
@@ -2229,7 +2220,11 @@ sub promote_snyk_transitives {
         for my $child (keys %{$transitive_map_ref->{$parent}}) {
             push @{$transitive_parents{$child}}, $parent;
 
-            my $child_trans_rev = $transitive_map_ref->{$parent}{$child};
+            my $child_trans_data = $transitive_map_ref->{$parent}{$child};
+            my $child_trans_rev = ref($child_trans_data) eq 'HASH'
+                ? $child_trans_data->{native}
+                : $child_trans_data;
+
             if (defined $child_trans_rev) {
                 if (!exists $max_transitive_revs{$child} ||
                     version_compare($child_trans_rev, $max_transitive_revs{$child}) > 0) {
