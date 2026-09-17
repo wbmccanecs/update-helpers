@@ -65,10 +65,10 @@ for my $k (keys %$override_branch) {
     $override_branch->{$xlate->{$k}} = $override_branch->{$k};
 }
 my $override_path = {
-    "esb%2Fesb-common.jar"                       => "esb_common.git%2Fspring6%2Fesb-common.jar",
-    "esb%2Fesb-services.jar"                     => "esb_common.git%2Fspring6%2Fesb-services.jar",
-    "esb_common.git%2Fmaster%2Fesb-common.jar"   => "esb_common.git%2Fjakarta%2Fesb-common.jar",
-    "esb_common.git%2Fmaster%2Fesb-services.jar" => "esb_common.git%2Fjakarta%2Fesb-services.jar",
+    "esb%2Fesb-common.jar"                                 => "esb_common.git%2Fjakarta%2Fesb-common.jar",
+    "esb%2Fesb-services.jar"                               => "esb_common.git%2Fjakarta%2Fesb-services.jar",
+    'esb_common.git%2F(master|spring6)%2Fesb-common.jar'   => "esb_common.git%2Fjakarta%2Fesb-common.jar",
+    'esb_common.git%2F(master|spring6)%2Fesb-services.jar' => "esb_common.git%2Fjakarta%2Fesb-services.jar",
 };
 
 my @remove = (
@@ -114,7 +114,12 @@ while (<$in>) {
 
         if (!$remove) {
             (my $file = $path) =~ s#/#%2F#g;
-            $file = $override_path->{$file} if defined $override_path->{$file};
+            for my $pattern (keys %$override_path) {
+                if ($file =~ /^$pattern$/) {
+                    $file = $override_path->{$pattern};
+                    last;
+                }
+            }
             (my $target = $project) =~ s/\.git$//;
             $branch = $override_branch->{$target} if defined $override_branch->{$target};
             if (defined $xlate->{$target}) {
@@ -146,7 +151,12 @@ while (<$in>) {
         if (!$remove) {
             my ($orig_branch, $orig_file) = ($branch, $file);
             $branch = $override_branch->{$project} if defined $override_branch->{$project};
-            $file = $override_path->{$file} if defined $override_path->{$file};
+            for my $pattern (keys %$override_path) {
+                if ($file =~ /^$pattern$/) {
+                    $file = $override_path->{$pattern};
+                    last;
+                }
+            }
             log_success("Change " . $dest . " branch from '$orig_branch' to '$branch'")
                 if $orig_branch ne $branch;
             log_success("Change " . $dest . " file from '$orig_file' to '$file'")
