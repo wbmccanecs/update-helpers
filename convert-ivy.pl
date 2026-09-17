@@ -142,6 +142,50 @@ sub main {
         $present_deps{$1} = 1;
     }
 
+    # Special rule: if any @Configuration class is annotated with @EnableCaching, ensure aspectjweaver is required for spring-context-support
+    my $enable_caching_present = 0;
+    {
+        # Search Java source files for both annotations in the same file
+        for my $srcdir (@src_dirs) {
+            next unless -d $srcdir;
+            find(sub {
+                return unless -f $_ && $_ =~ /\.java$/i;
+                local $/;
+                open my $jf, '<', $_ or return;
+                my $jc = <$jf>;
+                close $jf;
+                if ($jc =~ /\@Configuration\b/ && $jc =~ /\@EnableCaching\b/) {
+                    $enable_caching_present = 1;
+                    $File::Find::prune = 1; # stop searching further files
+                }
+            }, $srcdir);
+            last if $enable_caching_present;
+        }
+    }
+
+    if ($enable_caching_present) {
+        if ($present_deps{'spring-context-support'} || exists $used_deps_to_keep{'spring-context-support'}) {
+            $add_if_missing->{'spring-context-support'} ||= [];
+
+            unless (grep {$_ eq 'aspectjweaver'} @{$add_if_missing->{'spring-context-support'}}) {
+                log_info("Found \@EnableCaching in \@Configuration class, adding aspectjweaver dependency");
+                push @{$add_if_missing->{'spring-context-support'}}, 'aspectjweaver';
+                $update->{aspectjweaver}{keep} = 1;
+            }
+
+            # Automatically add ehcache if @Cacheable (or JSR-107 @CacheResult) is imported by any active local or MGIC class
+            if (exists $used_deps_to_keep{'org.springframework.cache.annotation.Cacheable'} ||
+                exists $used_deps_to_keep{'javax.cache.annotation.CacheResult'}) {
+
+                unless (grep {$_ eq 'ehcache'} @{$add_if_missing->{'spring-context-support'}}) {
+                    log_info("Found \@Cacheable usage in reachable classes, adding ehcache dependency");
+                    push @{$add_if_missing->{'spring-context-support'}}, 'ehcache';
+                    $update->{ehcache}{keep} = 1;
+                }
+            }
+        }
+    }
+
     # If a kept dependency declares 'deps' in revision-updates.txt, schedule them for insertion
     for my $trigger (keys %present_deps) {
         if (exists $update->{$trigger} && exists $update->{$trigger}{requires} && defined $update->{$trigger}{requires}) {
@@ -1833,6 +1877,12 @@ sub report_missing_transitive_imports {
                 $provided_modules{$name} = 1;
                 $provided_modules{"$org.$name"} = 1;
                 $provided_modules{$org} = 1;
+
+                my $base_org = $org;
+                if ($base_org =~ s/\.[^\.]+$//) {
+                    $provided_modules{$base_org} = 1;
+                }
+                # -----------------------------------------------------------------------------------------
             }
         }
         close($dfh);
