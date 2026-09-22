@@ -14,7 +14,7 @@ claims-commons.jar                      ../claims_commons/src
 domain-definition-get-client.jar        ../domain_definition_service_10430/src/com/mgic/service/domaindefinition/get
 domain-definition-translate-client.jar  ../domain_definition_service_10430/src/com/mgic/service/domaindefinition/translate
 esb-common.jar                          ../esb_common/src
-esb-service.jar                         ../esb_common/src
+esb-services.jar                        ../esb_common/src
 mgic-atlas-codeset.jar                  ../atlas_7002/src/com/mgic/codeset
 mgic-atlas-common.jar                   ../atlas_7002/src/com/mgic/atlascommon
 mgic-atlas-loan-container.jar           ../atlas_7002/src/com/mgic/atlas/bean/session ../atlas_7002/src/com/mgic/atlas/bean ../atlas_7002/src/com/mgic/atlas/model/domain ../atlas_7002/src/com/mgic/atlas/model/domain ../atlas_7002/src/com/mgic/atlas/state ../atlas_7002/src/com/mgic/atlas/service ../atlas_7002/src/com/mgic/atlas/validation ../atlas_7002/src/com/mgic/atlas/model/domain
