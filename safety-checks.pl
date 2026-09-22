@@ -73,6 +73,7 @@ my $java_patterns = {
     # FQCN Declarations
     '^(?:[^/]|/(?!/))*?(?:private|public|protected)?\s+(?:final\s+)?(?:static\s+)?((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s+\w+(?:\s*[=;,])'                => 'FQCN member declaration: $1',
     '^(?:[^/]|/(?!/))*?\bnew\s+((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s*\('                                                                                => 'FQCN construction: $1',
+    '[\s(]((?:[a-z][a-zA-Z0-9_]*\.){2,}[A-Z][a-zA-Z0-9_]*)\s+\w+\s*[,)]'                                                                                             => 'FQCN method parameter: $1',
     '(JMSC\.MQJMS_(\w+))'                                                                                                                                            => 'replace $1 with WMQConstants.WMQ_$2',
 };
 
@@ -1410,7 +1411,7 @@ sub ui_recommendations {
                 }
             }
         }
-        if ($_ =~ /\.(jsp|jspf|htm|html|js|css|tld|tag)$/i) {
+        if ($_ =~ /\.(jsp|jspf|htm|html|js|css|tld|tag)$/i || $_ =~ /(decorators|sitemesh)\.xml/) {
             log_warning("remove " . $File::Find::name);
         }
 
