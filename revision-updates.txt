@@ -39,6 +39,7 @@ commons-io: org=commons-io, name=commons-io, rev=2.22.0
 angus-mail: org=org.eclipse.angus, name=angus-mail, rev=2.1.0-M1, providers=jakarta.mail
 joda-time: org=joda-time, name=joda-time, rev=2.14.3
 jaxen: org=jaxen, name=jaxen, rev=2.0.6
+aspectjweaver: org=org.aspectj, name=aspectjweaver, rev=1.9.24
 
 # Logging
 log4j-api: org=org.apache.logging.log4j, name=log4j-api, rev=2.26.1
@@ -61,7 +62,7 @@ sitemesh: org=opensymphony, name=sitemesh, rev=2.7.0-M1
 jakarta.servlet-api: org=jakarta.servlet, name=jakarta.servlet-api, rev=6.0.0, conf=compile->default
 jakarta.servlet.jsp-api: org=jakarta.servlet.jsp, name=jakarta.servlet.jsp-api, rev=4.0.0, conf=compile->default
 jakarta.servlet.jsp.jstl: org=org.glassfish.web, name=jakarta.servlet.jsp.jstl, rev=3.0.1, providers=jakarta.tags|jakarta.servlet.jsp.jstl|org.glassfish.web.jstl
-jakarta.servlet.jsp.jstl-api: org=jakarta.servlet.jsp.jstl, name=jakarta.servlet.jsp.jstl-api, rev=3.0.2, conf=runtime->default, providers=jakarta.tags|jakarta.servlet.jsp.jstl|org.glassfish.web.jstl
+jakarta.servlet.jsp.jstl-api: org=jakarta.servlet.jsp.jstl, name=jakarta.servlet.jsp.jstl-api, rev=3.0.2, providers=jakarta.tags|jakarta.servlet.jsp.jstl|org.glassfish.web.jstl
 lombok: org=org.projectlombok, name=lombok, rev=1.18.46, conf=compile->default, keep=1
 jakarta.annotation-api: org=jakarta.annotation, name=jakarta.annotation-api, rev=3.0.0, keep=1, conf=compile->default
 byte-buddy-agent: org=net.bytebuddy, name=byte-buddy-agent, rev=1.17.8, conf=compile->default
@@ -91,8 +92,8 @@ tika-parser-sqlite3-package: org=org.apache.tika, name=tika-parser-sqlite3-packa
 
 # OTHER OTHER
 jackson-annotations: org=com.fasterxml.jackson.core, name=jackson-annotations, rev=2.22
-jackson-core: org=com.fasterxml.jackson.core, name=jackson-core, rev=2.22.1
-jackson-databind: org=com.fasterxml.jackson.core, name=jackson-databind, rev=2.22.2, snyk=SNYK-JAVA-COMFASTERXMLJACKSONCORE-19477042
+jackson-core: org=com.fasterxml.jackson.core, name=jackson-core, rev=2.22.3, snyk=SNYK-JAVA-COMFASTERXMLJACKSONCORE-20059179
+jackson-databind: org=com.fasterxml.jackson.core, name=jackson-databind, rev=2.22.3, snyk=SNYK-JAVA-COMFASTERXMLJACKSONCORE-20059683
 jackson-datatype-jsr310: org=com.fasterxml.jackson.datatype, name=jackson-datatype-jsr310, rev=2.22.1, keep=1
 jackson-datatype-json-org: org=com.fasterxml.jackson.datatype, name=jackson-datatype-json-org, rev=2.22.1
 itextpdf: org=com.itextpdf, name=itextpdf, rev=5.5.13.5
