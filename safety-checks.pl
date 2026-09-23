@@ -1338,7 +1338,7 @@ sub ui_recommendations {
                             for my $mp (@{$filter_mapping_positions{$fname} || []}) {
                                 if (defined $smoke_pos && $mp <= $smoke_pos) {
                                     $all_after = 0;
-                                    last
+                                    last;
                                 }
                             }
                             if ($all_after) {
@@ -1411,88 +1411,30 @@ sub ui_recommendations {
                 }
             }
         }
+
         if ($_ =~ /\.(jsp|jspf|htm|html|js|css|tld|tag)$/i || $_ =~ /(decorators|sitemesh)\.xml/) {
             log_warning("remove " . $File::Find::name);
         }
 
-        # Recommend removing web.xml filter-mappings that point to page resources (except smoke.htm)
-        if (0 && $_ eq 'web.xml') {
+        if ($_ =~ m/\.java/) {
+            if ($File::Find::name =~ m#/AuthorizationFilter.java#) {
+                log_warning("possibly unused class " . $File::Find::name);
+                return;
+            }
+
             local $/;
             open my $fh, '<', $_ or return;
             my $content = <$fh>;
             close $fh;
 
-            my @mappings;
-            while ($content =~ /(<filter-mapping\b[^>]*>.*?<\/filter-mapping>)/gis) {
-                my $block = $1;
-                my ($filter_name) = $block =~ /<filter-name>\s*([^<]+?)\s*<\/filter-name>/i;
-                my @patterns = ($block =~ /<url-pattern>\s*([^<]+?)\s*<\/url-pattern>/gis);
-                push @mappings, { block => $block, filter_name => $filter_name, patterns => \@patterns } if defined $filter_name;
+            if ($content =~ m/\@(Rest)?Controller/) {
+                log_warning("remove $1Controller " . $File::Find::name);
             }
-
-            my %filter_count;
-            $filter_count{$_->{filter_name}}++ for @mappings;
-
-            for my $m (@mappings) {
-                my $fname = $m->{filter_name};
-                my @pats = @{$m->{patterns}};
-                next unless @pats;
-                # Only remove the mapping if NONE of the url-patterns could match smoke.htm
-                my $has_smoke = 0;
-                for my $p (@pats) {
-                    $has_smoke = 1 if pattern_matches_smoke($p);
-                }
-                unless ($has_smoke) {
-                    log_warning($File::Find::name . ": remove filter-mapping for filter '$fname' (url-patterns: " . join(', ', @pats) . ")");
-
-                    if (($filter_count{$fname} || 0) <= 1) {
-                        if (!filter_has_smoke_mapping($content, $fname) && $content =~ /(<filter\b[^>]*>.*?<filter-name>\s*\Q$fname\E\s*<\/filter-name>.*?<\/filter>)/is) {
-                            my $matched = $1;
-                            my $pos = index($content, $matched);
-                            my $line_num = () = substr($content, 0, $pos) =~ /\n/g;
-                            $line_num++;
-                            log_warning($File::Find::name . ": remove <filter> '$fname' as it has no other mappings (filter at line $line_num)");
-                        }
-                    }
-                }
-            }
-
-            # Additional removals: jsp-config, welcome-file-list, servlet, servlet-mapping, mime-mapping, error-page, session-config
-            for my $tag (qw(jsp-config welcome-file-list servlet servlet-mapping mime-mapping error-page session-config)) {
-                while ($content =~ /(<$tag\b[^>]*>.*?<\/$tag>)/gis) {
-                    my $block = $1;
-                    # skip if block references smoke.htm via any url-pattern or content
-                    next if $block =~ /smoke\.htm/i;
-
-                    if ($tag eq 'servlet') {
-                        my ($sname) = $block =~ /<servlet-name>\s*([^<]+?)\s*<\/servlet-name>/i;
-                        my ($sclass) = $block =~ /<servlet-class>\s*([^<]+?)\s*<\/servlet-class>/i;
-                        # If this servlet is a Spring DispatcherServlet, avoid recommending removal
-                        if (defined $sclass && $sclass =~ /DispatcherServlet/i) {
-                            next;
-                        }
-                        if ($sname) {
-                            log_warning($File::Find::name . ": remove <servlet> '$sname' (no smoke.htm references)");
-                        }
-                        else {
-                            log_warning($File::Find::name . ": remove <servlet> block (no smoke.htm references)");
-                        }
-                    }
-                    elsif ($tag eq 'servlet-mapping') {
-                        my @spats = ($block =~ /<url-pattern>\s*([^<]+?)\s*<\/url-pattern>/gis);
-                        # only remove if none of the servlet-mapping patterns match smoke
-                        my $has_smoke = 0;
-                        $has_smoke = 1 if grep {pattern_matches_smoke($_)} @spats;
-                        unless ($has_smoke) {
-                            log_warning($File::Find::name . ": remove <servlet-mapping> (url-patterns: " . join(', ', @spats) . ")") if @spats;
-                        }
-                    }
-                    else {
-                        log_warning($File::Find::name . ": remove <$tag> block (no smoke.htm references)");
-                    }
-                }
+            elsif ($content =~ m/\@(Get|Post|Delete|Pet|Request)Mapping/) {
+                log_warning("remove $1Mapping " . $File::Find::name);
             }
         }
+        
     }, $current_dir);
 
     log_info("-" x 50);
