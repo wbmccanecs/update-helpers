@@ -912,6 +912,25 @@ sub find_unused_dependencies {
         }
     }
 
+    # PASS 1.5: Propagate 'kept' status to any explicitly required dependencies
+    my $propagated = 1;
+    while ($propagated) {
+        $propagated = 0;
+        for my $kept_parent (keys %kept_deps) {
+            if ($update_ref && exists $update_ref->{$kept_parent} && $update_ref->{$kept_parent}->{requires}) {
+                my @reqs = grep {length $_} split /[|,]+/, $update_ref->{$kept_parent}->{requires};
+                for my $req (@reqs) {
+                    # If the required child is declared in ivy.xml but not yet kept, save it
+                    if (exists $all_declared_deps{$req} && !$kept_deps{$req}) {
+                        log_info("Keeping explicitly declared '$req' because it is required by active dependency '$kept_parent'");
+                        $kept_deps{$req} = 1;
+                        $propagated = 1; # Loop again in case the newly kept child requires something else
+                    }
+                }
+            }
+        }
+    }
+    
     # PASS 2: Evaluate unused dependencies and promote children ONLY if not provided elsewhere
     for my $dep_name (keys %all_declared_deps) {
         next if $kept_deps{$dep_name};
