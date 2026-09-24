@@ -7,6 +7,7 @@ spring-context: org=org.springframework, name=spring-context, rev=6.2.19, snyk=S
 spring-context-support: org=org.springframework, name=spring-context-support, rev=6.2.19
 spring-expression: org=org.springframework, name=spring-expression, rev=6.2.19
 spring-jms: org=org.springframework, name=spring-jms, rev=6.2.19
+spring-jdbc: org=org.springframework, name=spring-jms, rev=6.2.19
 spring-messaging: org=org.springframework, name=spring-messaging, rev=6.2.19
 spring-test: org=org.springframework, name=spring-test, rev=6.2.19, conf=compile->default
 spring-tx: org=org.springframework, name=spring-tx, rev=6.2.19
