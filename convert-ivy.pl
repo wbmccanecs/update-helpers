@@ -186,28 +186,6 @@ sub main {
         }
     }
 
-    # If a kept dependency declares 'deps' in revision-updates.txt, schedule them for insertion
-    for my $trigger (keys %present_deps) {
-        if (exists $update->{$trigger} && exists $update->{$trigger}{requires} && defined $update->{$trigger}{requires}) {
-            my $reqs = $update->{$trigger}{requires};
-
-            # Split multiple required dependencies by pipe or comma
-            my @req_list = grep {length $_} split /[|,]+/, $reqs;
-
-            for my $req (@req_list) {
-                unless (exists $update->{$req}) {
-                    die "revision-updates.txt references deps for '$trigger' but no entry for required dep '$req' exists in revision-updates.txt\n";
-                }
-
-                # Only schedule insertion if not already directly declared in ivy.xml
-                unless ($present_deps{$req}) {
-                    $add_if_missing->{$trigger} ||= [];
-                    push @{$add_if_missing->{$trigger}}, $req unless grep {$_ eq $req} @{$add_if_missing->{$trigger}};
-                }
-            }
-        }
-    }
-
     # ------------------------------------------------------------------
     # STAGE 1: IN-PLACE REVISION & ALIAS UPDATES (Pre-Audit Transformation)
     # ------------------------------------------------------------------
@@ -594,6 +572,25 @@ sub main {
         }gmsxe;
     }
 
+    # If a SURVIVING dependency declares 'requires', schedule them for insertion
+    for my $trigger (keys %surviving_deps) {
+        if (exists $update->{$trigger} && exists $update->{$trigger}{requires} && defined $update->{$trigger}{requires}) {
+            my @req_list = grep {length $_} split /[|,]+/, $update->{$trigger}{requires};
+
+            for my $req (@req_list) {
+                unless (exists $update->{$req}) {
+                    die "revision-updates.txt references deps for '$trigger' but no entry for required dep '$req' exists in revision-updates.txt\n";
+                }
+
+                # Only schedule insertion if not already surviving in the file
+                unless ($surviving_deps{$req}) {
+                    $add_if_missing->{$trigger} ||= [];
+                    push @{$add_if_missing->{$trigger}}, $req unless grep {$_ eq $req} @{$add_if_missing->{$trigger}};
+                }
+            }
+        }
+    }
+
     insert_missing_dependencies(\$file_content, $add_if_missing, $update, $exclusions);
 
     open(my $out, ">", $output_file) or die "Error: could not open '$output_file': $!";
@@ -741,11 +738,12 @@ sub find_jars_for_dependency {
 }
 
 sub is_dep_used {
-    my ($dep_name, $update_ref, $used_deps_ref, $libdir, $api_provider_map) = @_;
+    my ($dep_name, $update_ref, $used_deps_ref, $libdir, $api_provider_map, $dep_rev) = @_;
     return 0 unless defined $dep_name && defined $used_deps_ref && %$used_deps_ref;
 
-    # Direct match in referenced tokens
-    return 1 if exists $used_deps_ref->{$dep_name};
+    if (exists $used_deps_ref->{$dep_name}) {
+        return 1;
+    }
 
     # 1. Config-Driven Providers (from revision-updates.txt: providers=uri1|uri2|pkg)
     if ($update_ref && exists $update_ref->{$dep_name} && $update_ref->{$dep_name}->{providers}) {
@@ -783,11 +781,24 @@ sub is_dep_used {
     my $jar_cache = get_jar_cache();
 
     for my $known_jar (keys %$known_jars) {
-        if ($known_jar =~ /^(?:ignore-)?\Q$dep_name\E(?:-[0-9].*|\.jar)$/i ||
-            $known_jar =~ /^(?:ignore-)?\Q$name\E(?:-[0-9].*|\.jar)$/i ||
-            ($org && $known_jar =~ /^(?:ignore-)?\Q$org\E[.-]\Q$name\E(?:-[0-9].*|\.jar)$/i)) {
-            $jars_to_check{$known_jar} ||= undef;
+        # When the declared version is known, require the index entry to match that exact
+        # version so we do not pick up classes from a different version of the same artifact.
+        # e.g. jaxen-2.0.6 declared in ivy.xml must only consult jaxen-2.0.6.jar, not
+        # jaxen-1.x.jar entries that might carry unrelated packages (like org.w3c.dom).
+        if (defined $dep_rev && $dep_rev ne '') {
+            my $ver = quotemeta($dep_rev);
+            next unless
+                $known_jar =~ /^(?:ignore-)?\Q$dep_name\E-$ver(?:\.jar|-.*\.jar)$/i ||
+                    $known_jar =~ /^(?:ignore-)?\Q$name\E-$ver(?:\.jar|-.*\.jar)$/i ||
+                    ($org && $known_jar =~ /^(?:ignore-)?\Q$org\E[.-]\Q$name\E-$ver(?:\.jar|-.*\.jar)$/i);
         }
+        else {
+            next unless
+                $known_jar =~ /^(?:ignore-)?\Q$dep_name\E(?:-[0-9].*|\.jar)$/i ||
+                    $known_jar =~ /^(?:ignore-)?\Q$name\E(?:-[0-9].*|\.jar)$/i ||
+                    ($org && $known_jar =~ /^(?:ignore-)?\Q$org\E[.-]\Q$name\E(?:-[0-9].*|\.jar)$/i);
+        }
+        $jars_to_check{$known_jar} ||= undef;
     }
 
     if (%jars_to_check) {
@@ -828,25 +839,6 @@ sub is_dep_used {
                 if ($ref_pkg eq $cand || $ref_pkg =~ /^\Q$cand\E\./i) {
                     return 1;
                 }
-            }
-        }
-    }
-
-    return 0;
-}
-
-sub is_dep_or_transitive_used {
-    my ($dep_name, $update_ref, $used_deps_ref, $libdir, $api_provider_map, $transitive_map_ref) = @_;
-
-    # 1. Check if the parent dependency itself is directly used in source code
-    return 1 if is_dep_used($dep_name, $update_ref, $used_deps_ref, $libdir, $api_provider_map);
-
-    # 2. Check if any transitive child brought in by this parent provides classes used in source code
-    if ($transitive_map_ref && exists $transitive_map_ref->{$dep_name}) {
-        for my $child_dep (keys %{$transitive_map_ref->{$dep_name}}) {
-            if (is_dep_used($child_dep, $update_ref, $used_deps_ref, $libdir, $api_provider_map)) {
-                log_info("Keeping direct dependency '$dep_name' because its transitive child '$child_dep' is in use.");
-                return 1;
             }
         }
     }
@@ -907,7 +899,8 @@ sub find_unused_dependencies {
             next;
         }
 
-        if (is_dep_used($dep_name, $update_ref, $used_deps_ref, $libdir, $api_provider_map)) {
+        my $dep_rev = $all_declared_deps{$dep_name};
+        if (is_dep_used($dep_name, $update_ref, $used_deps_ref, $libdir, $api_provider_map, $dep_rev)) {
             $kept_deps{$dep_name} = 1;
         }
     }
@@ -930,7 +923,7 @@ sub find_unused_dependencies {
             }
         }
     }
-    
+
     # PASS 2: Evaluate unused dependencies and promote children ONLY if not provided elsewhere
     for my $dep_name (keys %all_declared_deps) {
         next if $kept_deps{$dep_name};
@@ -938,7 +931,9 @@ sub find_unused_dependencies {
 
         if ($transitive_map_ref && exists $transitive_map_ref->{$dep_name}) {
             for my $child_dep (keys %{$transitive_map_ref->{$dep_name}}) {
-                if (is_dep_used($child_dep, $update_ref, $used_deps_ref, $libdir, $api_provider_map)) {
+                # Transitive children do not have a declared version in ivy.xml, so pass undef
+                # to allow the any-version fallback in is_dep_used.
+                if (is_dep_used($child_dep, $update_ref, $used_deps_ref, $libdir, $api_provider_map, undef)) {
                     # Promote ONLY if no surviving parent dependency provides it
                     unless (is_provided_by_kept_deps($child_dep, \%kept_deps, $transitive_map_ref)) {
                         log_warning("Parent '$dep_name' is unused, but required child '$child_dep' is not provided by any kept dependency; promoting '$child_dep' to direct.");
@@ -980,8 +975,15 @@ sub should_remove_transitive {
     my $target_rev = $update_ref->{$dep_name}->{rev} if defined $update_ref && exists $update_ref->{$dep_name};
     my $effective_rev = $target_rev || $current_rev;
 
-    # 2. Find the highest NATIVE version supplied by surviving transitive parents
-    my $max_native_rev;
+    # 2. Find the LOWEST native version supplied by any surviving transitive parent.
+    #    Ivy prints two tree entries at the same depth for an evicted module:
+    #      first:  the resolved version (e.g. 4.0.9 — already overridden by the direct dep)
+    #      second: the originally requested / native version (e.g. 4.0.2)
+    #    generate_transitive_map_from_deps records the minimum seen as 'native'.
+    #    We use the MINIMUM native across all parents because if even one parent
+    #    natively requests a lower version than the direct dep, the direct dep is
+    #    still needed to force the higher version into the resolution.
+    my $min_native_rev;
 
     for my $parent_pkg (keys %$remove_redundant_transitives_versioned) {
         if ($surviving_deps_ref && exists $surviving_deps_ref->{$parent_pkg}) {
@@ -994,8 +996,8 @@ sub should_remove_transitive {
                     : $targets->{$dep_name};
 
                 if (defined $native_rev) {
-                    if (!defined $max_native_rev || version_compare($native_rev, $max_native_rev) > 0) {
-                        $max_native_rev = $native_rev;
+                    if (!defined $min_native_rev || version_compare($native_rev, $min_native_rev) < 0) {
+                        $min_native_rev = $native_rev;
                     }
                 }
             }
@@ -1003,17 +1005,20 @@ sub should_remove_transitive {
     }
 
     # 3. Decision Logic
-    if (defined $max_native_rev) {
-        my $cmp = version_compare($effective_rev, $max_native_rev);
+    if (defined $min_native_rev) {
+        my $cmp = version_compare($effective_rev, $min_native_rev);
 
         if ($cmp <= 0) {
-            # Safe to remove: Parent naturally brings in a version >= your direct revision
-            log_info("Dropping redundant direct dependency $dep_name ($effective_rev <= native $max_native_rev satisfied by surviving transitives)");
+            # Safe to remove: every parent natively provides a version >= the direct dep.
+            # (The lowest native request is still >= the direct dep, so it is redundant.)
+            log_info("Dropping redundant direct dependency $dep_name ($effective_rev <= min-native $min_native_rev across all surviving transitives)");
             return 1;
         }
         else {
-            # NOT safe to remove: Direct tag is actively forcing an eviction/override (e.g. 4.0.9 > native 4.0.2)
-            log_success("Keeping direct dependency $dep_name ($effective_rev > native $max_native_rev across transitives)");
+            # NOT safe to remove: at least one parent natively requests a lower version
+            # (min-native $min_native_rev < $effective_rev), so the direct dep is actively
+            # overriding that parent's resolution to supply the higher version.
+            log_success("Keeping direct dependency $dep_name ($effective_rev > min-native $min_native_rev — overriding at least one parent's native request)");
             return 0;
         }
     }
@@ -1108,8 +1113,8 @@ sub extract_all_referenced_packages {
         return unless defined $raw;
         $raw =~ s#[\r\n\s]+##g;
 
-        # Direct string registration for raw taglib URIs and domain-style tokens
-        if ($raw =~ /^[a-zA-Z0-9_\.\-]+$/ && $raw !~ /\.(xsd|xml|html|jsp|properties|png|jpg|gif|css|js)$/i) {
+        # Direct string registration for raw taglib URIs and domain-style tokens (must contain a dot)
+        if ($raw =~ /^[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\.\-]+\)/ && $raw !~ /\.(xsd|xml|html|jsp|properties|png|jpg|gif|css|js)\)/i) {
             $local_references{$raw} = 1;
         }
 
@@ -1898,53 +1903,61 @@ sub report_missing_transitive_imports {
                 $provided_modules{$org} = 1;
 
                 my $base_org = $org;
-                if ($base_org =~ s/\.[^\.]+$//) {
+                if ($base_org !~ /^(jakarta|javax)\./ && $base_org =~ s/\.[^\.]+$//) {
                     $provided_modules{$base_org} = 1;
                 }
-                # -----------------------------------------------------------------------------------------
             }
         }
         close($dfh);
     }
 
-    if (defined $extra_lib_dir && -d $extra_lib_dir) {
-        log_info("Including container library directory in audit: $extra_lib_dir");
+    # if (defined $extra_lib_dir && -d $extra_lib_dir) {
+    #     log_info("Including container library directory in audit: $extra_lib_dir");
+    #
+    #     $provided_modules{'org.w3c.dom'} = 1;
+    #     $provided_modules{'org.xml.sax'} = 1;
+    #
+    #     find({
+    #         wanted   => sub {
+    #             return unless -f $_ && $_ =~ /\.jar$/i;
+    #             my $jar_name = lc(basename($_));
+    #
+    #             if ($jar_name =~ /mq|wmq/i) {
+    #                 $provided_modules{'com.ibm.mq'} = 1;
+    #                 $provided_modules{'com.ibm.msg'} = 1;
+    #             }
+    #             elsif ($jar_name =~ /servlet|jsp|el-api|catalina|tomcat/i) {
+    #                 $provided_modules{'jakarta.servlet'} = 1;
+    #                 $provided_modules{'org.apache.catalina'} = 1;
+    #             }
+    #
+    #             my $jar_path = $_;
+    #             if (my @entries = `jar tf "$jar_path" 2>/dev/null`) {
+    #                 for my $entry (@entries) {
+    #                     if ($entry =~ /^([a-zA-Z0-9_\/]+)\/[^\/]+\.class$/) {
+    #                         my $pkg = $1;
+    #                         $pkg =~ s#/#.#g;
+    #                         $provided_modules{$pkg} = 1;
+    #                     }
+    #                 }
+    #             }
+    #         },
+    #         no_chdir => 1
+    #     }, $extra_lib_dir);
+    # }
 
-        $provided_modules{'org.w3c.dom'} = 1;
-        $provided_modules{'org.xml.sax'} = 1;
-
-        find({
-            wanted   => sub {
-                return unless -f $_ && $_ =~ /\.jar$/i;
-                my $jar_name = lc(basename($_));
-
-                if ($jar_name =~ /mq|wmq/i) {
-                    $provided_modules{'com.ibm.mq'} = 1;
-                    $provided_modules{'com.ibm.msg'} = 1;
-                }
-                elsif ($jar_name =~ /servlet|jsp|el-api|catalina|tomcat/i) {
-                    $provided_modules{'jakarta.servlet'} = 1;
-                    $provided_modules{'org.apache.catalina'} = 1;
-                }
-
-                my $jar_path = $_;
-                if (my @entries = `jar tf "$jar_path" 2>/dev/null`) {
-                    for my $entry (@entries) {
-                        if ($entry =~ /^([a-zA-Z0-9_\/]+)\/[^\/]+\.class$/) {
-                            my $pkg = $1;
-                            $pkg =~ s#/#.#g;
-                            $provided_modules{$pkg} = 1;
-                        }
-                    }
-                }
-            },
-            no_chdir => 1
-        }, $extra_lib_dir);
+    # Merge local imports into the audit targets
+    my %all_needed_imports = %reachable_mgic_imports;
+    for my $local_imp (keys %local_references) {
+        next if $local_imp =~ /^(?:java|com\.sun|sun|jdk)\./;
+        next if $local_imp =~ /^javax\.(?:crypto|net|sql|naming|management|xml|security|sound|imageio|swing|lang|annotation\.processing|print|script|tools)\b/;
+        $all_needed_imports{$local_imp} ||= [];
+        push @{$all_needed_imports{$local_imp}}, "Local Source Code";
     }
 
     my $missing_count = 0;
 
-    for my $needed_import (sort keys %reachable_mgic_imports) {
+    for my $needed_import (sort keys %all_needed_imports) {
         my $is_satisfied = 0;
 
         for my $prov (keys %provided_modules) {
@@ -1960,15 +1973,54 @@ sub report_missing_transitive_imports {
             }
         }
 
-        if ($needed_import =~ /^com\.mgic\./) {
+        if ($needed_import =~ /^(?:com\.mgic|com\.ibm\.mq|com\.ibm\.msg)\./) {
             $is_satisfied = 1;
         }
 
         if (!$is_satisfied) {
             $missing_count++;
-            my $triggers = join(', ', @{$reachable_mgic_imports{$needed_import}});
+            my $triggers = join(', ', @{$all_needed_imports{$needed_import}});
             log_warning("MISSING DEPENDENCY PROVIDER: '$needed_import'");
             log_info("   └─ Required by reachable class(es): $triggers");
+
+            my $jar_cache = get_jar_cache();
+            my @candidates;
+
+            for my $jar_file (keys %$jar_cache) {
+                my $jar_data = $jar_cache->{$jar_file};
+                if ((exists $jar_data->{classes} && exists $jar_data->{classes}->{$needed_import}) ||
+                    (exists $jar_data->{packages} && exists $jar_data->{packages}->{$needed_import})) {
+                    push @candidates, $jar_file;
+                }
+            }
+
+            if (@candidates) {
+                @candidates = sort {
+                    # 1. Prefer jars with '-api' in the name
+                    my $a_is_api = ($a =~ /-api(?:-|\.)/i) ? 1 : 0;
+                    my $b_is_api = ($b =~ /-api(?:-|\.)/i) ? 1 : 0;
+                    return $b_is_api <=> $a_is_api if $a_is_api != $b_is_api;
+
+                    # 2. Extract versions for comparison
+                    my ($a_name, $a_ver) = $a =~ /^(.+?)-([0-9]+\.[0-9\.\-[a-zA-Z]+)\.jar$/;
+                    my ($b_name, $b_ver) = $b =~ /^(.+?)-([0-9]+\.[0-9\.\-[a-zA-Z]+)\.jar$/;
+                    $a_ver //= '0';
+                    $b_ver //= '0';
+                    $a_name //= $a;
+                    $b_name //= $b;
+
+                    # 3. Sort by latest version descending if names match
+                    if ($a_name eq $b_name) {
+                        return version_compare($b_ver, $a_ver);
+                    }
+
+                    # 4. Fallback to alphabetical sorting of the jar name
+                    return $a_name cmp $b_name;
+                } @candidates;
+
+                my $best_match = $candidates[0];
+                log_success("   └─ Suggestion: Provided by '$best_match'");
+            }
         }
     }
 
