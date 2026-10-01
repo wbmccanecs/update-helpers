@@ -26,14 +26,31 @@ use MyLogger qw(
 );
 
 my ($help, $hibernate5, $no_ui, $audit_deps, $verbose) = (0) x 5;
+my %active_flags;
 
 for my $arg (@ARGV) {
-    my $key = lc($arg);
-    $help = 1 if $key eq "-h" || $key eq "--help";
-    $hibernate5 = 1 if $key eq "5" || $key eq "--hibernate5";
-    $no_ui = 1 if $key eq "noui" || $key eq "headless" || $key eq "--no-ui";
-    $audit_deps = 1 if $key eq "audit" || $key eq "--audit-deps";
-    $verbose = 1 if $key eq "-v" || $key eq "--verbose";
+    my $raw_key = lc($arg);
+    my $key = $raw_key;
+    $key =~ s/^--?//;
+    $help = 1 if $key eq "h" || $key eq "help";
+    $hibernate5 = 1 if $key eq "5" || $key eq "hibernate5";
+    $hibernate5 = 1 if $key eq "5" || $key eq "hibernate5";
+    $no_ui = 1 if $key eq "noui" || $key eq "headless" || $key eq "no-ui";
+    $audit_deps = 1 if $key eq "audit" || $key eq "audit-deps";
+    $verbose = 1 if $key eq "v" || $key eq "verbose";
+
+    $active_flags{$key} = 1;
+    $active_flags{$raw_key} = 1;
+}
+
+if ($no_ui) {
+    $active_flags{'no-ui'} = 1;
+    $active_flags{'noui'} = 1;
+    $active_flags{'headless'} = 1;
+}
+if ($hibernate5) {
+    $active_flags{'hibernate5'} = 1;
+    $active_flags{'5'} = 1;
 }
 
 if ($help) {
@@ -47,7 +64,7 @@ if ($help) {
 }
 
 # Internal script metadata fields that should NOT be injected as XML attributes
-my %internal_metadata_keys = map {$_ => 1} qw(keep snyk keep_both replace_from replace_to providers requires);
+my %internal_metadata_keys = map {$_ => 1} qw(keep snyk keep_both replace_from replace_to providers requires remove-if add-if keep-if if unless);
 
 sub main {
     my %unused_deps_to_drop;
@@ -74,22 +91,10 @@ sub main {
 
     my %used_deps_to_keep = extract_all_referenced_packages(\@src_dirs, (-d 'war' ? 'war' : undef), \@base_packages);
 
-    my @remove_packages = [];
+    my @remove_packages;
 
     if ($no_ui) {
         log_info("--- HEADLESS MODE ACTIVE: Pruning UI dependencies ---");
-        push @remove_packages, (
-            "spring-webmvc",
-            "spring-websocket",
-            "sitemesh",
-            "jakarta.servlet.jsp-api",
-            "jakarta.servlet.jsp.jstl",
-            "jakarta.servlet.jsp.jstl-api",
-            "displaytag",
-            "encoder-jakarta-jsp",
-            "cas-client-core",
-            "nimbus-jose-jwt"
-        );
     }
 
     my $recommendations = {
@@ -98,16 +103,7 @@ sub main {
         'commons-lang' => 'convert all classes to use commons-lang3, try to remove commons-lang dependency',
     };
 
-    my $update = load_update_data(\@remove_packages);
-
-    if ($hibernate5) {
-        $update->{"hibernate-core-jakarta"} = { org => "org.hibernate", name => "hibernate-core-jakarta", rev => "5.6.15.Final" };
-        $update->{"hibernate-core"} = $update->{"hibernate-core-jakarta"};
-        push @remove_packages, "hibernate-community-dialects";
-    }
-    else {
-        $update->{"hibernate-core-jakarta"} = $update->{"hibernate-core"};
-    }
+    my $update = load_update_data(\@remove_packages, \%active_flags);
 
     my $add_if_missing = {};
     my %globally_add_deps = ();
@@ -2033,10 +2029,44 @@ sub report_missing_transitive_imports {
 }
 
 sub load_update_data {
-    my ($remove_packages) = @_;
+    my ($remove_packages, $active_flags) = @_;
+    $active_flags ||= {};
     my $script_dir = $FindBin::RealBin;
     my $update_hash_file = "$script_dir/revision-updates.txt";
     my $hash = {};
+    my %pending_removals;
+
+    my $check_positive_cond = sub {
+        my ($opts_ref) = @_;
+        if (exists $opts_ref->{'if'} || exists $opts_ref->{'add-if'} || exists $opts_ref->{'keep-if'}) {
+            my $cond_str = $opts_ref->{'if'} // $opts_ref->{'add-if'} // $opts_ref->{'keep-if'};
+            for my $flag (split /[|,]+/, $cond_str) {
+                return 1 if $active_flags->{$flag};
+            }
+            return 0;
+        }
+        return 1;
+    };
+
+    my $check_unless_cond = sub {
+        my ($opts_ref) = @_;
+        if (exists $opts_ref->{'unless'}) {
+            for my $flag (split /[|,]+/, $opts_ref->{'unless'}) {
+                return 1 if $active_flags->{$flag};
+            }
+        }
+        return 0;
+    };
+
+    my $check_remove_if_cond = sub {
+        my ($opts_ref) = @_;
+        if (exists $opts_ref->{'remove-if'}) {
+            for my $flag (split /[|,]+/, $opts_ref->{'remove-if'}) {
+                return 1 if $active_flags->{$flag};
+            }
+        }
+        return 0;
+    };
 
     if (-e $update_hash_file) {
         open my $fh, '<', $update_hash_file or die "Cannot open $update_hash_file: $!";
@@ -2057,6 +2087,13 @@ sub load_update_data {
                     $opts{$k} = $v if defined $k && defined $v;
                 }
 
+                next unless $check_positive_cond->(\%opts);
+                next if $check_unless_cond->(\%opts);
+                if ($check_remove_if_cond->(\%opts)) {
+                    push @$remove_packages, $old;
+                    next;
+                }
+
                 if (exists $hash->{$new}) {
                     $hash->{$old} = { %{$hash->{$new}} };
                     $hash->{$old}->{replace_from} = $old;
@@ -2073,26 +2110,97 @@ sub load_update_data {
                         # Full replacement target for standard alias mappings
                         $hash->{$old}->{name} = $new;
                     }
+
+                    for my $k (keys %opts) {
+                        next if $internal_metadata_keys{$k};
+                        $hash->{$old}->{$k} = $opts{$k};
+                    }
                 }
                 else {
                     log_warning("missing key: $new");
                 }
             }
             elsif ($line =~ /^-/) {
-                my $name = substr($line, 1);
-                push @$remove_packages, $name;
+                my ($pkg_part, @opts_parts) = split /\s*,\s*/, substr($line, 1);
+                my %opts;
+                for my $part (@opts_parts) {
+                    my ($k, $v) = split /\s*=\s*/, $part, 2;
+                    $opts{$k} = $v if defined $k && defined $v;
+                }
+
+                next unless $check_positive_cond->(\%opts);
+                next if $check_unless_cond->(\%opts);
+
+                push @$remove_packages, $pkg_part;
             }
             else {
                 my @fields = split /[:,]\s*/, $line;
                 my $key = shift @fields;
+                my %entry_attrs;
                 for my $field (@fields) {
                     my ($attribute, $value) = split /=/, $field, 2;
                     log_warning("mismatched key: $key <=> $value") if $attribute eq 'name' && $value ne $key;
-                    $hash->{$key}{$attribute} = $value;
+                    $entry_attrs{$attribute} = $value if defined $attribute && defined $value;
+                }
+
+                # 1. Positive condition check (if, add-if, keep-if): only use line if flag is ACTIVE
+                if (exists $entry_attrs{'if'} || exists $entry_attrs{'add-if'} || exists $entry_attrs{'keep-if'}) {
+                    my $cond_str = $entry_attrs{'if'} // $entry_attrs{'add-if'} // $entry_attrs{'keep-if'};
+                    my @cond_flags = split /[|,]+/, $cond_str;
+                    my $matched = 0;
+                    for my $flag (@cond_flags) {
+                        if ($active_flags->{$flag}) {
+                            $matched = 1;
+                            last;
+                        }
+                    }
+                    next unless $matched;
+                    $entry_attrs{keep} = 1;
+                    delete $pending_removals{$key};
+                }
+
+                # 2. Unless condition check: skip this line if flag is ACTIVE
+                if (exists $entry_attrs{'unless'}) {
+                    my @cond_flags = split /[|,]+/, $entry_attrs{'unless'};
+                    my $matched = 0;
+                    for my $flag (@cond_flags) {
+                        if ($active_flags->{$flag}) {
+                            $matched = 1;
+                            last;
+                        }
+                    }
+                    next if $matched;
+                }
+
+                # 3. Remove-if condition check: prune dependency from ivy.xml if flag is ACTIVE
+                if (exists $entry_attrs{'remove-if'}) {
+                    my @cond_flags = split /[|,]+/, $entry_attrs{'remove-if'};
+                    my $matched = 0;
+                    for my $flag (@cond_flags) {
+                        if ($active_flags->{$flag}) {
+                            $matched = 1;
+                            last;
+                        }
+                    }
+                    if ($matched) {
+                        $pending_removals{$key} = 1;
+                    }
+                }
+
+                # Copy entry attributes into $hash->{$key}
+                for my $attr (keys %entry_attrs) {
+                    $hash->{$key}{$attr} = $entry_attrs{$attr};
                 }
             }
         }
         close $fh;
+
+        for my $rem_key (keys %pending_removals) {
+            log_info("Pruning '$rem_key' (matched remove-if rule)");
+            push @$remove_packages, $rem_key;
+            push @$remove_packages, $hash->{$rem_key}{name}
+                if defined $hash->{$rem_key} && defined $hash->{$rem_key}{name} && $hash->{$rem_key}{name} ne $rem_key;
+        }
     }
     else {
         die "Update hash file $update_hash_file not found!";
