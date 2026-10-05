@@ -6,6 +6,7 @@ spring-beans: org=org.springframework, name=spring-beans, rev=6.2.19, unless=spr
 spring-context: org=org.springframework, name=spring-context, rev=6.2.19, snyk=SNYK-JAVA-ORGSPRINGFRAMEWORK-18326609, unless=spring7
 spring-context-support: org=org.springframework, name=spring-context-support, rev=6.2.19, unless=spring7
 spring-expression: org=org.springframework, name=spring-expression, rev=6.2.19, unless=spring7
+spring-jcl: org=org.springframework, name=spring-jcl, rev=6.2.19, unless=spring7
 spring-jms: org=org.springframework, name=spring-jms, rev=6.2.19, unless=spring7
 spring-jdbc: org=org.springframework, name=spring-jdbc, rev=6.2.19, unless=spring7
 spring-messaging: org=org.springframework, name=spring-messaging, rev=6.2.19, unless=spring7
@@ -32,6 +33,7 @@ spring-beans: org=org.springframework, name=spring-beans, rev=7.0.9, if=spring7
 spring-context: org=org.springframework, name=spring-context, rev=7.0.9, snyk=SNYK-JAVA-ORGSPRINGFRAMEWORK-18326609, if=spring7
 spring-context-support: org=org.springframework, name=spring-context-support, rev=7.0.9, if=spring7
 spring-expression: org=org.springframework, name=spring-expression, rev=7.0.9, if=spring7
+spring-jcl: org=org.springframework, name=spring-jcl, rev=7.0.9, remove-if=spring7
 spring-jms: org=org.springframework, name=spring-jms, rev=7.0.9, if=spring7
 spring-jdbc: org=org.springframework, name=spring-jdbc, rev=7.0.9, if=spring7
 spring-messaging: org=org.springframework, name=spring-messaging, rev=7.0.9, if=spring7
@@ -75,7 +77,8 @@ mockito-core: org=org.mockito, name=mockito-core, rev=5.23.0, conf=compile->defa
 # Web Runtime
 encoder-jakarta-jsp: org=org.owasp.encoder, name=encoder-jakarta-jsp, rev=1.4.0, providers=owasp.encoder|org.owasp.encoder|owasp.encoder.jakarta, remove-if=no-ui
 encoder: org=org.owasp.encoder, name=encoder, rev=1.3.1, providers=owasp.encoder|owasp.encoder.jakarta|org.owasp.encoder
-sitemesh: org=opensymphony, name=sitemesh, rev=2.7.0-M1, remove-if=no-ui
+sitemesh: org=opensymphony, name=sitemesh, rev=2.7.0-M1, remove-if=no-ui, unless=spring7
+sitemesh: org=org.sitemesh, name=sitemesh, rev=3.2.3, remove-if=no-ui, if=spring7
 
 # WEB COMPILE
 jakarta.servlet-api: org=jakarta.servlet, name=jakarta.servlet-api, rev=6.0.0, conf=compile->default
@@ -87,12 +90,12 @@ jakarta.annotation-api: org=jakarta.annotation, name=jakarta.annotation-api, rev
 byte-buddy-agent: org=net.bytebuddy, name=byte-buddy-agent, rev=1.17.8, conf=compile->default
 
 # Hibernate 5
-hibernate-core-jakarta: org=hibernate, name=hibernate-core-jakarta, rev=5.6.15.Final, keep=1, if=hibernate5
-hibernate-jpamodelgen: org=org.hibernate, name=hibernate-jpamodelgen, rev=5.6.15.Final, conf=compile->default, if=hibernate5
+hibernate-core-jakarta: org=hibernate, name=hibernate-core-jakarta, rev=5.6.15.Final, keep=1, if=hibernate5, unless=spring7
+hibernate-jpamodelgen: org=org.hibernate, name=hibernate-jpamodelgen, rev=5.6.15.Final, conf=compile->default, if=hibernate5, unless=spring7
 
 # Hibernate 6
-hibernate-core: org=org.hibernate.orm, name=hibernate-core, rev=6.6.54.Final, keep=1, unless=hibernate5
-hibernate-jpamodelgen: org=org.hibernate.orm, name=hibernate-jpamodelgen, rev=6.6.54.Final, conf=compile->default, unless=hibernate5
+hibernate-core: org=org.hibernate.orm, name=hibernate-core, rev=6.6.54.Final, keep=1, unless=hibernate5, unless=spring7
+hibernate-jpamodelgen: org=org.hibernate.orm, name=hibernate-jpamodelgen, rev=6.6.54.Final, conf=compile->default, unless=hibernate5, unless=spring7
 hibernate-community-dialects: org=org.hibernate.orm, name=hibernate-community-dialects, rev=6.6.54.Final, remove-if=hibernate5
 hibernate-validator: org=org.hibernate.validator, name=hibernate-validator, rev=8.0.5.Final, providers=jakarta.validation|org.hibernate.validator
 hibernate-validator-annotation-processor: org=org.hibernate.validator, name=hibernate-validator-annotation-processor, rev=8.0.5.Final
@@ -100,6 +103,13 @@ dom4j: org=org.dom4j, name=dom4j, rev=2.2.0, requires=jaxen
 byte-buddy: org=net.bytebuddy, name=byte-buddy, rev=1.17.8
 jakarta.persistence-api: org=jakarta.persistence, name=jakarta.persistence-api, rev=3.2.0
 jakarta.transaction-api: org=jakarta.transaction, name=jakarta.transaction-api, rev=2.0.1
+
+# Hibernate 7
+hibernate-core: org=org.hibernate.orm, name=hibernate-core, rev=7.4.11.Final, keep=1, if=spring7
+hibernate-jpamodelgen: org=org.hibernate.orm, name=hibernate-jpamodelgen, rev=7.4.11.Final, conf=compile->default, if=spring7
+hibernate-community-dialects: org=org.hibernate.orm, name=hibernate-community-dialects, rev=7.4.11.Final, if=spring7
+hibernate-validator: org=org.hibernate.validator, name=hibernate-validator, rev=9.1.4.Final, providers=jakarta.validation|org.hibernate.validator, if=spring7
+hibernate-validator-annotation-processor: org=org.hibernate.validator, name=hibernate-validator-annotation-processor, rev=9.1.4.Final, if=spring7
 
 # CAS for SSO - ONLY FOR ATLAS APPS
 cas-client-core: org=org.apereo.cas.client, name=cas-client-core, rev=4.0.4, remove-if=no-ui
