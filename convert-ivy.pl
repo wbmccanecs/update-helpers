@@ -306,8 +306,19 @@ sub main {
                 if (defined $current_rev && !$is_package_name_changing && !$should_keep_rev) {
                     my $cmp = version_compare($current_rev, $new_rev_candidate);
                     if ($cmp > 0) {
-                        log_warning("Keep current rev for $dep_org:$dep_name: $current_rev");
-                        $should_keep_rev = 1;
+                        # Current rev is newer than the update target.
+                        # If the major version differs, the update is intentional (e.g. flag-driven
+                        # major upgrade/downgrade via if=/unless= predicates) - always apply it.
+                        # Only keep the project's newer revision when the major version is the same.
+                        my ($cur_major) = ($current_rev =~ /^(\d+)/);
+                        my ($new_major) = ($new_rev_candidate =~ /^(\d+)/);
+                        if (defined $cur_major && defined $new_major && $cur_major == $new_major) {
+                            log_warning("Keep current rev for $dep_org:$dep_name: $current_rev (same major, project is ahead)");
+                            $should_keep_rev = 1;
+                        }
+                        else {
+                            log_info("Applying target rev for $dep_org:$dep_name: $new_rev_candidate (major version change from $current_rev - flag-driven override)");
+                        }
                     }
                 }
 
